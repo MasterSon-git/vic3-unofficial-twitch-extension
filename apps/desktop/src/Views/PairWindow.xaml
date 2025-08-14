@@ -1,0 +1,25 @@
+<Window x:Class="Vic3Unofficial.Twitch.Desktop.Views.PairWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Enter Pairing Code" Height="170" Width="380"
+        WindowStartupLocation="CenterOwner">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock Text="Enter the 6-character pairing code from the Twitch config view:"/>
+    <TextBox Grid.Row="1" Margin="0,8,0,8" MaxLength="8"
+             FontFamily="Consolas" FontSize="18"
+             Text="{Binding PairCode, UpdateSourceTrigger=PropertyChanged}"/>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button Content="Cancel" Margin="0,0,8,0"
+              Command="{Binding CancelCommand}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+      <Button Content="OK"
+              Command="{Binding ConfirmCommand}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+    </StackPanel>
+  </Grid>
+</Window>
