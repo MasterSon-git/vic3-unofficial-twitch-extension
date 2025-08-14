@@ -1,0 +1,19 @@
+name = "vic3-unofficial-twitch-ebs"
+main = "src/index.ts"
+compatibility_date = "2025-08-01"
+
+kv_namespaces = [
+  { binding = "KV", id = "f62edd0617d24b8084c56dd0c19aa731", preview_id = "aa97e763190647389a6ab10e8f4326f8" }
+]
+
+[vars]
+# Twitch Extension client id & owner (from Twitch Dev Console)
+EXT_CLIENT_ID = "fpahqkl7f39poodct9kn1590kltnww"
+EXT_OWNER_USER_ID = "484239140"
+
+# Policy knobs
+MAX_ACTIVE_CHANNELS = 100
+INGEST_BASE_INTERVAL_MS = 300000   # 5 minutes
+
+[observability]
+enabled = true

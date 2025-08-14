@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Unofficial Victoria 3 Overlay – Config</title>
+  <style>
+    :root{
+      /* Light (Twitch Guidance) */
+      --bg: #fff;                /* Background Color (Light) */
+      --text: #232127;           /* Default Text (Light) */
+      --muted: #666666;
+      --link: #6441A4;           /* Twitch Purple */
+      --card: #ffffff;
+      --card-border: #dddddd;
+      --button-bg: #111111;
+      --button-text: #ffffff;
+    }
+    .dark {
+      /* Dark (Twitch Guidance) */
+      --bg: #201c2b;             /* "Twitch Dark Purple" */
+      --text: #e5e3e8;           /* "Twitch Light Grey" */
+      --muted: #adadb8;
+      --link: #e2dbf0;           /* Light variant of Twitch Purple */
+      --card: #1f1f23;
+      --card-border: #303030;
+      --button-bg: #9146ff;      /* Twitch brand purple for CTAs */
+      --button-text: #ffffff;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      margin: 0;
+      padding: 0;
+    }
+    .wrap { margin: 2rem; }
+    .card {
+      max-width: 560px;
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      background: var(--card);
+    }
+    button {
+      padding: .6rem 1rem;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: var(--button-bg);
+      color: var(--button-text);
+      cursor: pointer;
+    }
+    button[disabled] { opacity:.6; cursor: not-allowed; }
+    a { color: var(--link); text-decoration: none; }
+    .muted { color: var(--muted); }
+    .row { display:flex; gap:.75rem; align-items:center; margin: 1rem 0; }
+    .code {
+      font: 600 22px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      letter-spacing: .15em;
+    }
+  </style>
+
+  <script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+  <script>
+    // Theme handling per official helper:
+    Twitch.ext.onContext((ctx) => {
+      // ctx.theme is "light" or "dark"
+      document.documentElement.classList.toggle('dark', ctx.theme === 'dark');
+    });
+
+    // Optional: Initial fallback (in case onContext is late)
+    document.documentElement.classList.toggle('dark',
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    );
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h2>Unofficial Victoria 3 Overlay – Configuration</h2>
+    <p class="muted">Click “Generate code” to pair your desktop uploader with this channel.</p>
+    <div class="row" style="margin: 1rem 0;">
+      <button id="gen" disabled>Generate code</button>
+      <div id="status" class="muted"></div>
+    </div>
+    <div id="out" class="code"></div>
+    <p class="muted" id="hint"></p>
+  </div>
+
+  <script>
+    let auth = null;
+    const workerBase = "https://vic3-unofficial-twitch-ebs.masterharz-ss.workers.dev"; // <- ggf. anpassen
+
+    const genBtn = document.getElementById('gen');
+    const out = document.getElementById('out');
+    const statusEl = document.getElementById('status');
+    const hint = document.getElementById('hint');
+
+    function setStatus(t){ statusEl.textContent = t; }
+    function setHint(t){ hint.textContent = t; }
+    function showCode(code, ttl){
+      out.textContent = code;
+      setHint(`Valid for ${Math.round(ttl/60)} minutes. Enter this code in the desktop app.`);
+    }
+
+    Twitch.ext.onAuthorized(a => {
+      auth = a;
+      genBtn.disabled = false;
+      setStatus("Ready");
+    });
+
+    genBtn.addEventListener('click', async () => {
+      if (!auth) return;
+      genBtn.disabled = true; setStatus("Generating...");
+      try {
+        const url = `${workerBase}/pair/init?channelId=${encodeURIComponent(auth.channelId)}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${auth.token}` }
+        });
+        const data = await res.json().catch(()=> ({}));
+        if(!res.ok){ throw new Error(data?.error || `HTTP ${res.status}`); }
+        showCode(data.code, data.expiresIn || 600);
+        setStatus("Code generated");
+      } catch (e) {
+        setStatus(`Error: ${e.message || e}`);
+        out.textContent = "";
+        setHint("");
+      } finally {
+        genBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

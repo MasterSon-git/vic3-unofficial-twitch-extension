@@ -1,0 +1,84 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.code-workspace
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+# lockfiles are tracked; do not ignore
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Cloudflare Workers
+.wrangler/
+.dev.vars
+dist/
+.worker-build/
+build/
+
+# Frontend tool caches
+.vite/
+.vite-inspect/
+coverage/
+*.tsbuildinfo
+.cache/
+.eslintcache
+.turbo/
+.next/
+.svelte-kit/
+out/
+
+# E2E
+cypress/videos/
+cypress/screenshots/
+playwright-report/
+test-results/
+.vitest/
+
+# .NET / VS
+bin/
+obj/
+[Bb]uild/
+[Ll]ogs/
+artifacts/
+TestResult*/
+*.VisualState.xml
+*.user
+*.suo
+*.sln.docstates
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+!packages/repositories.config
+
+# Misc
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Generated assets (example)
+public/flags/generated/
+!public/flags/README.md
+
+# Local Test Scripts
+scripts/local-test*

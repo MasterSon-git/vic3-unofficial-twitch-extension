@@ -1,0 +1,9 @@
+{
+  "name": "vic3-unofficial-twitch",
+  "private": true,
+  "workspaces": [
+    "apps/worker-ebs",
+    "apps/extension-panel",
+    "packages/shared"
+  ]
+}
