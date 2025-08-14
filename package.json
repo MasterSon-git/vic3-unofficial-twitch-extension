@@ -1,5 +1,5 @@
 {
-  "name": "vic3-unofficial-twitch",
+  "name": "vic3-unofficial-twitch-extension",
   "private": true,
   "workspaces": [
     "apps/worker-ebs",
