@@ -8,6 +8,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "@vic3-unofficial-twitch/shared": "file:../../libs/shared",
     "@hono/zod-validator": "^0.2.1",
     "hono": "^4.5.7",
     "jose": "^5.9.3",

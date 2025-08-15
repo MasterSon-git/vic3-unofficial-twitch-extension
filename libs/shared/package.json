@@ -1,0 +1,19 @@
+{
+  "name": "@vic3-unofficial-twitch/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "gen:json": "node ./scripts/gen-json-schema.cjs",
+    "gen:cs": "quicktype --src-lang schema --lang csharp --namespace Vic3.Shared --out ../../apps/desktop/src/Generated/SharedSchema.cs dist/schema.json",
+    "codegen": "npm run build && npm run gen:json && npm run gen:cs"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.5",
+    "quicktype": "^23.0.47"
+  }
+}

@@ -4,6 +4,6 @@
   "workspaces": [
     "apps/worker-ebs",
     "apps/extension-panel",
-    "packages/shared"
+    "libs/shared"
   ]
 }

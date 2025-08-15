@@ -1,0 +1,3 @@
+"dependencies": {
+  "@vic3-unofficial-twitch/shared": "file:../../libs/shared"
+}
