@@ -1,21 +1,19 @@
 import { z } from "zod";
 
-/** Country entry is compact: use tags/ids; names/flags live in Bootstrap */
-export const CountryZ = z.object({
-  tag: z.string().min(2).max(4),              // e.g. "PRU"
-  treasury: z.number().int().optional(),      // in pounds
+export const CountrySchema = z.object({
+  tag: z.string().min(2).max(4),
+  treasury: z.number().optional(),
   gdp: z.number().optional(),
-  market: z.string().optional()               // ETag/ID to bootstrap market
+  market: z.string().optional(),
 });
 
-/** Snapshot pushed by desktop; broadcast must stay <= 5KB stringified */
-export const SnapshotZ = z.object({
+export const SnapshotSchema = z.object({
   channelId: z.string().min(1),
   saveHash: z.string().min(1),
-  seq: z.number().int().nonnegative(),
-  countries: z.array(CountryZ).max(300),
-  updatedAt: z.string().datetime().optional()
+  seq: z.number().min(0),
+  countries: z.array(CountrySchema).max(300),
+  updatedAt: z.string().datetime().optional(),
 });
 
-export type Snapshot = z.infer<typeof SnapshotZ>;
-export type Country  = z.infer<typeof CountryZ>;
+export type Country = z.infer<typeof CountrySchema>;
+export type Snapshot = z.infer<typeof SnapshotSchema>;

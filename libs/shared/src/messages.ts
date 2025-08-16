@@ -1,4 +1,10 @@
-export type Vic3Broadcast =
-  | { type: "vic3:snapshot"; payload: any };
+import { z } from "zod";
+import { SnapshotSchema } from "./schema/snapshot";
 
-// In the panel, check message.type === "vic3:snapshot"
+/** Einziger erlaubter Broadcast: Snapshot */
+export const BroadcastMessageSchema = z.object({
+  type: z.literal("vic3:snapshot"),
+  payload: SnapshotSchema,
+});
+
+export type BroadcastMessage = z.infer<typeof BroadcastMessageSchema>;

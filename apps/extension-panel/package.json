@@ -1,3 +1,9 @@
-"dependencies": {
-  "@vic3-unofficial-twitch/shared": "file:../../libs/shared"
+{
+  "name": "vic3-unofficial-twitch-extension-panel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vic3-unofficial-twitch/shared": "file:../../libs/shared"
+  }
 }

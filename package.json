@@ -1,6 +1,9 @@
 {
   "name": "vic3-unofficial-twitch-extension",
   "private": true,
+  "scripts": {
+    "deps:update": "npx npm-check-updates -u --packageFile package.json --packageFile apps/**/package.json --packageFile libs/**/package.json && npm install"
+  },
   "workspaces": [
     "apps/worker-ebs",
     "apps/extension-panel",

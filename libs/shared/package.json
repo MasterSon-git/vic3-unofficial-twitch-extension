@@ -5,15 +5,28 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "gen:json": "node ./scripts/gen-json-schema.cjs",
-    "gen:cs": "quicktype --src-lang schema --lang csharp --namespace Vic3.Shared --out ../../apps/desktop/src/Generated/SharedSchema.cs dist/schema.json",
-    "codegen": "npm run build && npm run gen:json && npm run gen:cs"
+    "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "zod": "^3.23.8",
-    "zod-to-json-schema": "^3.23.5",
-    "quicktype": "^23.0.47"
+    "typescript": "^5.9.2",
+    "zod": "^4.0.17"
+  },
+  "exports": {
+    "./schema/snapshot": {
+      "import": "./dist/schema/snapshot.js",
+      "types": "./dist/schema/snapshot.d.ts"
+    },
+    "./schema/bootstrap": {
+      "import": "./dist/schema/bootstrap.js",
+      "types": "./dist/schema/bootstrap.d.ts"
+    },
+    "./messages": {
+      "import": "./dist/messages.js",
+      "types": "./dist/messages.d.ts"
+    },
+    "./*": {
+      "import": "./dist/*.js",
+      "types": "./dist/*.d.ts"
+    }
   }
 }
