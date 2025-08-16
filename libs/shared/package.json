@@ -4,12 +4,18 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "prepare": "npm run build" 
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.9.2",
-    "zod": "^4.0.17"
+    "rimraf": "^6.0.1"
   },
   "exports": {
     "./schema/snapshot": {

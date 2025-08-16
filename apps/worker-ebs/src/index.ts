@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { OpenAPI } from "hono-openapi";
+import { openAPISpecs } from "hono-openapi";
 import { z } from "zod";
 import { SnapshotSchema, BootstrapSchema, BroadcastMessageSchema, type Snapshot, type Bootstrap, type BroadcastMessage } from "@vic3-unofficial-twitch/shared";
 import { sendPubSubBroadcast } from "./twitch";
@@ -318,6 +318,19 @@ app.get(
 );
 
 // ---------- OpenAPI Spec ----------
-app.get("/openapi.json", (c) => c.json(openapi.generateSpec()));
+app.get(
+  "/openapi.json",
+  openAPISpecs(app, {
+    documentation: {
+      info: {
+        title: "Vic3 Twitch Extension API",
+        version: "1.0.0",
+      },
+      servers: [
+        { url: "https://vic3-unofficial-twitch-ebs.masterharz-ss.workers.dev" },
+      ],
+    },
+  })
+);
 
 export default app;

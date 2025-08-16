@@ -2,7 +2,12 @@
   "name": "vic3-unofficial-twitch-extension",
   "private": true,
   "scripts": {
-    "deps:update": "npx npm-check-updates -u --packageFile package.json --packageFile apps/**/package.json --packageFile libs/**/package.json && npm install"
+    "deps:update": "npx npm-check-updates -u && npm install"
+  },
+  "overrides": {
+    "zod": "3.23.8",
+    "@hono/zod-validator": "0.4.3",
+    "zod-openapi": "4.2.4"
   },
   "workspaces": [
     "apps/worker-ebs",
