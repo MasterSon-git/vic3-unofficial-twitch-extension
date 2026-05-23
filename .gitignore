@@ -79,6 +79,8 @@ packages/
 # Generated assets (example)
 public/flags/generated/
 !public/flags/README.md
+apps/worker-ebs/src/generated/
+apps/desktop/src/Generated/
 
 # Local Test Scripts
 scripts/local-test*

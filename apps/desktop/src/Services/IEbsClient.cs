@@ -10,6 +10,5 @@ public interface IEbsClient
     string? IngestToken { get; }
 
     Task<bool> CompletePairingAsync(string code);
-    Task UploadBootstrapAsync(Bootstrap bootstrap);
     Task IngestAsync(Snapshot snapshot);
 }

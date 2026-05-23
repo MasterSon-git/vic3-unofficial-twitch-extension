@@ -1,19 +1,23 @@
 using System;
 using System.Net;
 using System.Net.Http;
-using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Vic3Unofficial.Twitch.Desktop.Extensions;
 using Vic3Unofficial.Twitch.Desktop.Infrastructure;
 using Vic3Unofficial.Twitch.Desktop.Models;
+using ApiException = Vic3Unofficial.Twitch.Desktop.Generated.ApiException;
+using ApiCountry = Vic3Unofficial.Twitch.Desktop.Generated.Country;
+using ApiEbsClient = Vic3Unofficial.Twitch.Desktop.Generated.EbsApiClient;
+using ApiPairCompleteRequest = Vic3Unofficial.Twitch.Desktop.Generated.PairCompleteRequest;
+using ApiPairCompleteResponse = Vic3Unofficial.Twitch.Desktop.Generated.PairCompleteResponse;
+using ApiSnapshot = Vic3Unofficial.Twitch.Desktop.Generated.Snapshot;
 
 namespace Vic3Unofficial.Twitch.Desktop.Services;
 
 public sealed class EbsClient : IEbsClient
 {
-    private readonly HttpClient _http;
+    private readonly ApiEbsClient _api;
     private readonly ISettingsService _settings;
     private readonly ITokenStore _tokenStore;
     private readonly ILogger<EbsClient> _log;
@@ -21,14 +25,14 @@ public sealed class EbsClient : IEbsClient
 
     public EbsClient(HttpClient http, ISettingsService settings, ITokenStore tokenStore, ILogger<EbsClient> log, IStatusSink status)
     {
-        _http = http;
-        _http.Timeout = TimeSpan.FromSeconds(30);
+        http.Timeout = TimeSpan.FromSeconds(30);
+        _api = new ApiEbsClient(http);
         _settings = settings;
+        _api.BaseUrl = BaseUrl;
         _tokenStore = tokenStore;
         _log = log;
         _status = status;
 
-        // Token aus Store laden (falls vorhanden)
         var loaded = _tokenStore.Load();
         if (loaded.HasValue)
         {
@@ -46,23 +50,23 @@ public sealed class EbsClient : IEbsClient
     public async Task<bool> CompletePairingAsync(string code)
     {
         _log.LogInformation("Pair/complete started. BaseUrl={BaseUrl}", BaseUrl);
-        _status.Post(StatusLevel.Info, "Pairing…");
+        _status.Post(StatusLevel.Info, "Pairing...");
 
-        var payload = JsonSerializer.Serialize(new { code });
-        var res = await _http.PostAsync($"{BaseUrl}/pair/complete",
-            new StringContent(payload, Encoding.UTF8, "application/json"));
-        var text = await res.Content.ReadAsStringAsync();
-        
-        if (!res.IsSuccessStatusCode)
+        ApiPairCompleteResponse response;
+        try
         {
-            _log.LogWarning("Pair/complete failed: {Status} {Body}", (int)res.StatusCode, text.Truncate(500));
-            _status.Post(StatusLevel.Warning, $"Pairing failed: {res.StatusCode}  {text}");
-            throw new Exception($"pair/complete failed: {res.StatusCode} {text}");
+            response = await _api.CompletePairAsync(new ApiPairCompleteRequest { Code = code });
+        }
+        catch (ApiException ex)
+        {
+            var responseText = ex.Response ?? "";
+            _log.LogWarning("Pair/complete failed: {Status} {Body}", ex.StatusCode, responseText.Truncate(500));
+            _status.Post(StatusLevel.Warning, $"Pairing failed: {ex.StatusCode}  {responseText}");
+            throw new Exception($"pair/complete failed: {ex.StatusCode} {responseText}", ex);
         }
 
-        using var doc = JsonDocument.Parse(text);
-        ChannelId   = doc.RootElement.GetProperty("channelId").GetString();
-        IngestToken = doc.RootElement.GetProperty("ingestToken").GetString();
+        ChannelId = response.ChannelId;
+        IngestToken = response.IngestToken.ToString();
         _log.LogInformation("Pairing OK. ChannelId={ChannelId}, TokenLen={Len}",
             ChannelId, IngestToken?.Length ?? 0);
         _status.Post(StatusLevel.Info, $"Paired with channel {ChannelId}");
@@ -75,31 +79,20 @@ public sealed class EbsClient : IEbsClient
         return false;
     }
 
-    public async Task UploadBootstrapAsync(Bootstrap bootstrap)
-    {
-        EnsurePaired();
-        using var req = new HttpRequestMessage(HttpMethod.Put, $"{BaseUrl}/bootstrap");
-        req.Headers.Add("x-ingest-token", IngestToken!);
-        req.Content = new StringContent(JsonSerializer.Serialize(bootstrap), Encoding.UTF8, "application/json");
-        var res = await _http.SendAsync(req);
-        await HandleAuthFailures(res); // NEW
-        if (!res.IsSuccessStatusCode)
-        {
-            var text = await res.Content.ReadAsStringAsync();
-            throw new Exception($"bootstrap failed: {res.StatusCode} {text}");
-        }
-    }
-
     public async Task IngestAsync(Snapshot snapshot)
     {
         EnsurePaired();
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/ingest");
-        req.Headers.Add("x-ingest-token", IngestToken!);
-        req.Content = new StringContent(JsonSerializer.Serialize(snapshot), Encoding.UTF8, "application/json");
-        var res = await _http.SendAsync(req);
-        var text = await res.Content.ReadAsStringAsync();
-        await HandleAuthFailures(res); // NEW
-        if (!res.IsSuccessStatusCode) throw new Exception($"ingest failed: {res.StatusCode} {text}");
+
+        try
+        {
+            await _api.IngestSnapshotAsync(IngestToken!, ToApiSnapshot(snapshot));
+        }
+        catch (ApiException ex)
+        {
+            var responseText = ex.Response ?? "";
+            await HandleAuthFailures(ex.StatusCode);
+            throw new Exception($"ingest failed: {ex.StatusCode} {responseText}", ex);
+        }
     }
 
     private void EnsurePaired()
@@ -108,11 +101,34 @@ public sealed class EbsClient : IEbsClient
             throw new InvalidOperationException("Client is not paired.");
     }
 
-    private Task HandleAuthFailures(HttpResponseMessage res)
+    private static ApiSnapshot ToApiSnapshot(Snapshot snapshot)
     {
-        if (res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        var apiSnapshot = new ApiSnapshot
         {
-            // Token vermutlich abgelaufen/ungültig → lokalen Store leeren
+            ChannelId = snapshot.ChannelId,
+            SaveHash = snapshot.SaveHash,
+            Seq = snapshot.Seq,
+            UpdatedAt = DateTimeOffset.TryParse(snapshot.UpdatedAt, out var updatedAt) ? updatedAt : null
+        };
+
+        foreach (var country in snapshot.Countries)
+        {
+            apiSnapshot.Countries.Add(new ApiCountry
+            {
+                Tag = country.Tag,
+                Treasury = country.Treasury,
+                Gdp = country.Gdp,
+                MarketId = country.MarketId
+            });
+        }
+
+        return apiSnapshot;
+    }
+
+    private Task HandleAuthFailures(int statusCode)
+    {
+        if ((HttpStatusCode)statusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
             _tokenStore.Clear();
             ChannelId = null;
             IngestToken = null;

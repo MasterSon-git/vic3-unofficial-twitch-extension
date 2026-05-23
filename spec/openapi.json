@@ -1,0 +1,913 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vic3 Unofficial Twitch Extension API",
+    "version": "1.0.0",
+    "description": "Extension Backend Service API for broadcaster pairing and desktop game-state ingest. Accepted snapshots are forwarded to Twitch Extension PubSub as broadcast messages."
+  },
+  "servers": [
+    {
+      "url": "https://vic3-unofficial-twitch-ebs.masterharz-ss.workers.dev",
+      "description": "Production Cloudflare Worker"
+    }
+  ],
+  "tags": [
+    {
+      "name": "health",
+      "description": "Operational health checks."
+    },
+    {
+      "name": "pairing",
+      "description": "Pairing flow between Twitch broadcaster config and the desktop uploader."
+    },
+    {
+      "name": "ingest",
+      "description": "Desktop uploader game-state ingestion."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "twitchExtension": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Twitch Extension JWT from the config view. The Worker validates it with the extension shared secret and accepts broadcaster/admin roles for the matching channel."
+      },
+      "ingestToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-ingest-token",
+        "description": "Opaque ingest token returned by POST /pair/complete and stored by the desktop uploader."
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "description": "Error response. The error field contains a stable machine-readable code; additional fields provide context for selected errors.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Stable machine-readable error code.",
+            "example": "channel_mismatch"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Configured limit relevant to the error, for example the active streamer cap."
+          },
+          "lastSeq": {
+            "type": "integer",
+            "description": "Last accepted sequence number for stale sequence errors."
+          },
+          "retryInMs": {
+            "type": "integer",
+            "description": "Milliseconds until a rate-limited ingest can be retried."
+          },
+          "hint": {
+            "type": "string",
+            "description": "Human-readable diagnostic hint."
+          }
+        },
+        "additionalProperties": true
+      },
+      "Country": {
+        "type": "object",
+        "description": "Compact game-state values for one Victoria 3 country. Display names, flags, and other UI resources are resolved by the Twitch Extension panel.",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "Victoria 3 country tag.",
+            "minLength": 2,
+            "maxLength": 4,
+            "example": "GBR"
+          },
+          "treasury": {
+            "type": "number",
+            "description": "Current treasury value when available.",
+            "example": 1000.5
+          },
+          "gdp": {
+            "type": "number",
+            "description": "Current gross domestic product value when available.",
+            "example": 2000
+          },
+          "marketId": {
+            "type": "string",
+            "description": "Game/internal market identifier when available.",
+            "example": "british_market"
+          }
+        },
+        "required": [
+          "tag"
+        ],
+        "additionalProperties": false
+      },
+      "Snapshot": {
+        "type": "object",
+        "description": "Game-state snapshot produced by the desktop uploader. Accepted snapshots are broadcast through Twitch Extension PubSub as the payload of a vic3:snapshot message.",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Twitch broadcaster channel ID associated with the ingest token.",
+            "minLength": 1,
+            "example": "123456789"
+          },
+          "saveHash": {
+            "type": "string",
+            "description": "Desktop-generated identity for the autosave. The Worker accepts a snapshot only when this value changed from the last accepted snapshot for the channel.",
+            "minLength": 1,
+            "example": "autosave-abc123"
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Uploader sequence number. Values are strictly increasing per channel.",
+            "minimum": 0,
+            "example": 42
+          },
+          "countries": {
+            "type": "array",
+            "description": "Compact per-country game-state values.",
+            "items": {
+              "$ref": "#/components/schemas/Country"
+            },
+            "maxItems": 300
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "UTC timestamp for the snapshot when available.",
+            "format": "date-time",
+            "example": "2025-10-31T12:00:00Z"
+          }
+        },
+        "required": [
+          "channelId",
+          "saveHash",
+          "seq",
+          "countries"
+        ],
+        "additionalProperties": false
+      },
+      "PairInitRequest": {
+        "type": "object",
+        "description": "Request to create a short-lived pairing code for the broadcaster channel.",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Twitch broadcaster channel ID from the config view authorization context.",
+            "minLength": 1,
+            "example": "123456789"
+          }
+        },
+        "required": [
+          "channelId"
+        ],
+        "additionalProperties": false
+      },
+      "PairInitResponse": {
+        "type": "object",
+        "description": "Pairing code shown to the broadcaster and entered into the desktop uploader.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Six-character pairing code.",
+            "minLength": 6,
+            "maxLength": 6,
+            "pattern": "^[A-Z0-9]{6}$",
+            "example": "ABC123"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "description": "Pairing code lifetime in seconds.",
+            "example": 600
+          }
+        },
+        "required": [
+          "code",
+          "expiresIn"
+        ],
+        "additionalProperties": false
+      },
+      "PairStatusRequest": {
+        "type": "object",
+        "description": "Request to read the non-sensitive pairing status for the broadcaster channel.",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Twitch broadcaster channel ID from the config view authorization context.",
+            "minLength": 1,
+            "example": "123456789"
+          }
+        },
+        "required": [
+          "channelId"
+        ],
+        "additionalProperties": false
+      },
+      "PairStatusResponse": {
+        "type": "object",
+        "description": "Non-sensitive pairing status for the broadcaster channel. The ingest token is never returned by this endpoint.",
+        "properties": {
+          "paired": {
+            "type": "boolean",
+            "description": "True when the desktop uploader has completed pairing for this channel.",
+            "example": true
+          },
+          "pairedAt": {
+            "type": "string",
+            "description": "UTC timestamp when pairing was completed. Omitted when the channel is not paired.",
+            "format": "date-time",
+            "example": "2025-10-31T12:00:00Z"
+          }
+        },
+        "required": [
+          "paired"
+        ],
+        "additionalProperties": false
+      },
+      "PairCompleteRequest": {
+        "type": "object",
+        "description": "Request to exchange a pairing code for an ingest token.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Pairing code generated by POST /pair/init.",
+            "minLength": 1,
+            "example": "ABC123"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "PairCompleteResponse": {
+        "type": "object",
+        "description": "Desktop ingest credentials for the paired channel.",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Twitch broadcaster channel ID associated with the token.",
+            "minLength": 1,
+            "example": "123456789"
+          },
+          "ingestToken": {
+            "type": "string",
+            "description": "Opaque token used in the x-ingest-token header for POST /ingest.",
+            "format": "uuid",
+            "readOnly": true,
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "description": "Ingest token lifetime in seconds.",
+            "example": 604800
+          }
+        },
+        "required": [
+          "channelId",
+          "ingestToken",
+          "expiresIn"
+        ],
+        "additionalProperties": false
+      },
+      "IngestOk": {
+        "type": "object",
+        "description": "Successful ingest response.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Ingest status.",
+            "enum": [
+              "ok"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "PubSubSnapshotMessage": {
+        "type": "object",
+        "description": "Twitch Extension PubSub message sent by the Worker after accepting a snapshot.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "vic3:snapshot"
+            ],
+            "description": "Message discriminator."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/Snapshot"
+          }
+        },
+        "required": [
+          "type",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {
+      "AuthorizationHeader": {
+        "name": "Authorization",
+        "in": "header",
+        "required": true,
+        "description": "Bearer Twitch Extension JWT.",
+        "schema": {
+          "type": "string",
+          "example": "Bearer <twitch-extension-jwt>"
+        }
+      },
+      "IngestTokenHeader": {
+        "name": "x-ingest-token",
+        "in": "header",
+        "required": true,
+        "description": "Desktop ingest token returned by POST /pair/complete.",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Request is malformed or conflicts with channel identity.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication token is missing or invalid.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Authenticated Twitch user is not allowed to perform the operation.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Snapshot conflicts with the last accepted channel state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "TooLarge": {
+        "description": "Snapshot cannot be broadcast within Twitch PubSub payload limits.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "TooMany": {
+        "description": "Configured rate or capacity limit has been reached.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "Publishing to Twitch PubSub failed.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Unexpected server error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      }
+    },
+    "examples": {
+      "SnapshotExample": {
+        "summary": "Accepted snapshot candidate",
+        "value": {
+          "channelId": "123456789",
+          "saveHash": "autosave-abc123",
+          "seq": 42,
+          "countries": [
+            {
+              "tag": "GBR",
+              "treasury": 1000.5,
+              "gdp": 2000,
+              "marketId": "british_market"
+            }
+          ],
+          "updatedAt": "2025-10-31T12:00:00Z"
+        }
+      },
+      "PubSubSnapshotMessageExample": {
+        "summary": "Broadcast snapshot message",
+        "value": {
+          "type": "vic3:snapshot",
+          "payload": {
+            "channelId": "123456789",
+            "saveHash": "autosave-abc123",
+            "seq": 42,
+            "countries": [
+              {
+                "tag": "GBR",
+                "treasury": 1000.5,
+                "gdp": 2000,
+                "marketId": "british_market"
+              }
+            ],
+            "updatedAt": "2025-10-31T12:00:00Z"
+          }
+        }
+      },
+      "PairInitRequestExample": {
+        "summary": "Pair init request",
+        "value": {
+          "channelId": "123456789"
+        }
+      },
+      "PairInitResponseExample": {
+        "summary": "Pair init response",
+        "value": {
+          "code": "ABC123",
+          "expiresIn": 600
+        }
+      },
+      "PairStatusRequestExample": {
+        "summary": "Pair status request",
+        "value": {
+          "channelId": "123456789"
+        }
+      },
+      "PairStatusResponseExample": {
+        "summary": "Paired status",
+        "value": {
+          "paired": true,
+          "pairedAt": "2025-10-31T12:00:00Z"
+        }
+      },
+      "PairCompleteRequestExample": {
+        "summary": "Pair complete request",
+        "value": {
+          "code": "ABC123"
+        }
+      },
+      "PairCompleteResponseExample": {
+        "summary": "Pair complete response",
+        "value": {
+          "channelId": "123456789",
+          "ingestToken": "550e8400-e29b-41d4-a716-446655440000",
+          "expiresIn": 604800
+        }
+      },
+      "IngestOkExample": {
+        "summary": "Ingest accepted",
+        "value": {
+          "status": "ok"
+        }
+      },
+      "ChannelMismatchError": {
+        "summary": "Channel mismatch",
+        "value": {
+          "error": "channel_mismatch"
+        }
+      },
+      "InvalidTwitchJwtError": {
+        "summary": "Invalid Twitch JWT",
+        "value": {
+          "error": "invalid_twitch_jwt"
+        }
+      },
+      "InvalidPairingCodeError": {
+        "summary": "Invalid or expired pairing code",
+        "value": {
+          "error": "invalid_or_expired_code"
+        }
+      },
+      "StaleSequenceError": {
+        "summary": "Stale sequence",
+        "value": {
+          "error": "stale_sequence",
+          "lastSeq": 42
+        }
+      },
+      "TooSoonError": {
+        "summary": "Ingest interval not elapsed",
+        "value": {
+          "error": "too_soon",
+          "retryInMs": 120000
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "getHealth",
+        "summary": "Health check",
+        "description": "Returns a plain text health response for operational checks.",
+        "responses": {
+          "200": {
+            "description": "Service is healthy.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pair/init": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "operationId": "initPair",
+        "summary": "Initialize pairing",
+        "description": "Creates a short-lived pairing code for the broadcaster channel. The Twitch Extension JWT must belong to the same channel and have broadcaster or admin role. The Worker tracks active channels and can reject new channels when the configured active streamer cap is reached.",
+        "security": [
+          {
+            "twitchExtension": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AuthorizationHeader"
+          }
+        ],
+        "requestBody": {
+          "description": "Broadcaster channel to pair.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairInitRequest"
+              },
+              "examples": {
+                "default": {
+                  "$ref": "#/components/examples/PairInitRequestExample"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing code created. The code expires after the returned lifetime.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairInitResponse"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/PairInitResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request channel does not match the Twitch JWT channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "channelMismatch": {
+                    "$ref": "#/components/examples/ChannelMismatchError"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Twitch Extension JWT is missing, malformed, expired, or signed with a different secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "invalidJwt": {
+                    "$ref": "#/components/examples/InvalidTwitchJwtError"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/pair/status": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "operationId": "getPairStatus",
+        "summary": "Read pairing status",
+        "description": "Returns the non-sensitive pairing status for the broadcaster channel. The Twitch Extension JWT must belong to the same channel and have broadcaster or admin role. The ingest token is never returned.",
+        "security": [
+          {
+            "twitchExtension": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AuthorizationHeader"
+          }
+        ],
+        "requestBody": {
+          "description": "Broadcaster channel to inspect.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairStatusRequest"
+              },
+              "examples": {
+                "default": {
+                  "$ref": "#/components/examples/PairStatusRequestExample"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing status for the broadcaster channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairStatusResponse"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/PairStatusResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request channel does not match the Twitch JWT channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "channelMismatch": {
+                    "$ref": "#/components/examples/ChannelMismatchError"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Twitch Extension JWT is missing, malformed, expired, or signed with a different secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "invalidJwt": {
+                    "$ref": "#/components/examples/InvalidTwitchJwtError"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/pair/complete": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "operationId": "completePair",
+        "summary": "Complete pairing",
+        "description": "Consumes a pairing code and returns an ingest token for the paired channel. Pairing codes are single-use and expire after their configured lifetime.",
+        "requestBody": {
+          "description": "Pairing code entered in the desktop uploader.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairCompleteRequest"
+              },
+              "examples": {
+                "default": {
+                  "$ref": "#/components/examples/PairCompleteRequestExample"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing completed. The desktop uploader stores the returned ingest token locally.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairCompleteResponse"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/PairCompleteResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Pairing code is missing, invalid, or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "invalidCode": {
+                    "$ref": "#/components/examples/InvalidPairingCodeError"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/ingest": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "operationId": "ingestSnapshot",
+        "summary": "Ingest snapshot",
+        "description": "Accepts one desktop uploader snapshot and broadcasts it through Twitch Extension PubSub. The Worker validates the ingest token, channel ID, increasing sequence number, changed save hash, configured ingest interval, and PubSub payload size before publishing.",
+        "security": [
+          {
+            "ingestToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IngestTokenHeader"
+          }
+        ],
+        "requestBody": {
+          "description": "Game-state snapshot to validate and broadcast.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Snapshot"
+              },
+              "examples": {
+                "default": {
+                  "$ref": "#/components/examples/SnapshotExample"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot accepted and broadcast through Twitch Extension PubSub.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestOk"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/IngestOkExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Snapshot channel does not match the ingest token channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "channelMismatch": {
+                    "$ref": "#/components/examples/ChannelMismatchError"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "Snapshot is stale or does not represent a new autosave.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "staleSequence": {
+                    "$ref": "#/components/examples/StaleSequenceError"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "429": {
+            "description": "Configured ingest interval has not elapsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "tooSoon": {
+                    "$ref": "#/components/examples/TooSoonError"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    }
+  }
+}

@@ -28,6 +28,9 @@ public partial class MainViewModel : ObservableObject
         _ebs = ebs;
         _services = services;
         _autosaveDir = settings.AutosaveDir;
+        Status = string.IsNullOrEmpty(_ebs.IngestToken)
+            ? "Not paired"
+            : $"Paired (channel {_ebs.ChannelId})";
 
        StatusEntries = statusSink.Events;
     }
@@ -40,33 +43,6 @@ public partial class MainViewModel : ObservableObject
         IsWatching = !IsWatching;
         OnPropertyChanged(nameof(WatchingButtonText));
         Status = IsWatching ? "Watching autosaves…" : "Stopped.";
-    }
-
-    [RelayCommand]
-    private async System.Threading.Tasks.Task UploadBootstrapAsync()
-    {
-        if (string.IsNullOrEmpty(_ebs.IngestToken))
-        {
-            Status = "Please pair first.";
-            return;
-        }
-
-        try
-        {
-            var boot = new Bootstrap
-            {
-                Version = "v1",
-                CountriesByTag = { ["PRU"] = "Prussia", ["FRA"] = "France" },
-                FlagsByTag = { ["PRU"] = "https://example.com/flags/PRU.png", ["FRA"] = "https://example.com/flags/FRA.png" },
-                MarketsById = { ["german_market"] = "German Market", ["french_market"] = "French Market" }
-            };
-            await _ebs.UploadBootstrapAsync(boot);
-            Status = "Bootstrap uploaded.";
-        }
-        catch (System.Exception ex)
-        {
-            Status = $"Bootstrap error: {ex.Message}";
-        }
     }
 
     [RelayCommand]

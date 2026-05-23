@@ -4,20 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "oas:gen:init": "rimraf src/generated/openapi && mkdirp src/generated/openapi",
+    "oas:gen:ts":  "openapi-typescript ../../spec/openapi.json -o src/generated/openapi/types.d.ts",
+    "oas:gen:routes": "node ../../scripts/generate-worker-routes.mjs",
+    "oas:gen": "npm run oas:gen:init && npm run oas:gen:ts && npm run oas:gen:routes",
+    "typecheck": "npm run oas:gen && tsc -p tsconfig.json --noEmit",
+    "dev": "npm run oas:gen && wrangler dev",
+    "deploy": "npm run oas:gen && wrangler deploy"
   },
   "dependencies": {
-    "@vic3-unofficial-twitch/shared": "file:../../libs/shared",
-    "@hono/zod-validator": "^0.4.3",
-    "hono": "^4.9.2",
-    "hono-openapi": "^0.4.8",
-    "jose": "^6.0.12",
-    "zod": "^3.23.8"
+    "ajv": "^8.20.0",
+    "hono": "^4.12.22",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250816.0",
-    "typescript": "^5.9.2",
-    "wrangler": "^4.30.0"
+    "@cloudflare/workers-types": "^4.20260523.1",
+    "mkdirp": "^3.0.1",
+    "openapi-typescript": "^7.13.0",
+    "rimraf": "^6.1.3",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.94.0"
   }
 }

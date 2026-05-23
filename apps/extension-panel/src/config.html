@@ -56,6 +56,23 @@
     a { color: var(--link); text-decoration: none; }
     .muted { color: var(--muted); }
     .row { display:flex; gap:.75rem; align-items:center; margin: 1rem 0; }
+    .state {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      min-height: 1.5rem;
+      font-weight: 600;
+    }
+    .state::before {
+      content: "";
+      width: .55rem;
+      height: .55rem;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+    .state.paired::before { background: #16833a; }
+    .state.unpaired::before { background: #b7791f; }
+    .state.error::before { background: #b91c1c; }
     .code {
       font: 600 22px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       letter-spacing: .15em;
@@ -96,35 +113,106 @@
     const out = document.getElementById('out');
     const statusEl = document.getElementById('status');
     const hint = document.getElementById('hint');
+    let statusTimer = null;
+    let codePollTimer = null;
 
-    function setStatus(t){ statusEl.textContent = t; }
+    function setStatus(t, state){
+      statusEl.textContent = t;
+      statusEl.className = `state ${state || ""}`.trim();
+    }
     function setHint(t){ hint.textContent = t; }
     function showCode(code, ttl){
       out.textContent = code;
       setHint(`Valid for ${Math.round(ttl/60)} minutes. Enter this code in the desktop app.`);
     }
+    function authHeaders(){
+      return {
+        "Authorization": `Bearer ${auth.token}`,
+        "Content-Type": "application/json"
+      };
+    }
+    function channelBody(){
+      return JSON.stringify({ channelId: auth.channelId });
+    }
+    function stopCodePolling(){
+      if (codePollTimer) clearInterval(codePollTimer);
+      codePollTimer = null;
+    }
+    function renderPairStatus(data){
+      if (data.paired) {
+        stopCodePolling();
+        out.textContent = "";
+        genBtn.textContent = "Generate new code";
+        setStatus("Paired", "paired");
+        setHint(data.pairedAt ? `Desktop uploader paired at ${new Date(data.pairedAt).toLocaleString()}.` : "Desktop uploader is paired.");
+      } else {
+        genBtn.textContent = "Generate code";
+        setStatus("Not paired", "unpaired");
+        if (!out.textContent) setHint("Generate a code and enter it in the desktop app.");
+      }
+    }
+    async function refreshPairStatus(){
+      if (!auth) return false;
+      const res = await fetch(`${workerBase}/pair/status`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: channelBody()
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      renderPairStatus(data);
+      return Boolean(data.paired);
+    }
+    function startStatusPolling(){
+      if (statusTimer) clearInterval(statusTimer);
+      statusTimer = setInterval(() => {
+        refreshPairStatus().catch(e => setStatus(`Error: ${e.message || e}`, "error"));
+      }, 30000);
+    }
+    function startCodePolling(ttl){
+      stopCodePolling();
+      const stopAt = Date.now() + (ttl * 1000);
+      codePollTimer = setInterval(async () => {
+        if (Date.now() >= stopAt) {
+          stopCodePolling();
+          return;
+        }
+        try {
+          await refreshPairStatus();
+        } catch (e) {
+          setStatus(`Error: ${e.message || e}`, "error");
+        }
+      }, 2000);
+    }
 
-    Twitch.ext.onAuthorized(a => {
+    Twitch.ext.onAuthorized(async a => {
       auth = a;
       genBtn.disabled = false;
-      setStatus("Ready");
+      setStatus("Checking...", "");
+      try {
+        await refreshPairStatus();
+        startStatusPolling();
+      } catch (e) {
+        setStatus(`Error: ${e.message || e}`, "error");
+      }
     });
 
     genBtn.addEventListener('click', async () => {
       if (!auth) return;
       genBtn.disabled = true; setStatus("Generating...");
       try {
-        const url = `${workerBase}/pair/init?channelId=${encodeURIComponent(auth.channelId)}`;
-        const res = await fetch(url, {
+        const res = await fetch(`${workerBase}/pair/init`, {
           method: "POST",
-          headers: { "Authorization": `Bearer ${auth.token}` }
+          headers: authHeaders(),
+          body: channelBody()
         });
         const data = await res.json().catch(()=> ({}));
         if(!res.ok){ throw new Error(data?.error || `HTTP ${res.status}`); }
         showCode(data.code, data.expiresIn || 600);
         setStatus("Code generated");
+        startCodePolling(data.expiresIn || 600);
       } catch (e) {
-        setStatus(`Error: ${e.message || e}`);
+        setStatus(`Error: ${e.message || e}`, "error");
         out.textContent = "";
         setHint("");
       } finally {

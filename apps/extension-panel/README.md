@@ -1,16 +1,7 @@
-# Victoria 3 – Twitch Panel/Overlay (React + Vite)
+# Extension Panel
 
-Twitch-hosted frontend that listens to **PubSub** and fetches **only** `/bootstrap` (with ETag) on load.  
-There is **no last-state HTTP fallback**. On first load, display “Waiting for next update…”.
+Twitch-hosted extension assets.
 
-## Dev
-```bash
-npm i
-npm run dev
-```
+The config view calls the Worker for broadcaster pairing. Viewer state arrives through Twitch Extension PubSub.
 
-## Build & Upload
-```bash
-npm run build
-# zip the dist/ per Twitch requirements and upload in Developer Console (Hosted Test → Release)
-```
+UI resources such as country names, labels, and flags are bundled with the panel assets.

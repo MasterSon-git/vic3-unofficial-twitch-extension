@@ -1,63 +1,53 @@
-# Victoria 3 – unofficial Twitch Extension Monorepo
+# Victoria 3 Unofficial Twitch Extension
 
-A production-focused monorepo for a **Twitch Extension** that lets viewers explore live **Victoria 3** country data (treasury, GDP, tech, armies, markets, construction, …) independently of the streamer.
+Monorepo for an unofficial Victoria 3 Twitch Extension.
+
+The desktop uploader sends game-state snapshots to the Worker. The Worker validates snapshots and forwards accepted state through Twitch Extension PubSub. Twitch delivers broadcasts to viewers.
 
 ## Apps
-- `apps/worker-ebs/` – Cloudflare Workers **EBS** (Extension Backend Service): pairing, ingest, PubSub, **bootstrap dictionaries** (names/flags/markets), active streamer cap.
-- `apps/desktop/` – Windows **.NET 8** tray app (skeleton): autosave watcher → parse → push `/bootstrap` + `/ingest`.
-- `apps/extension-panel/` – Twitch **Panel/Overlay** (skeleton, React + Vite): **PubSub-only** UI + `/bootstrap` fetch for dictionaries.
+- `apps/worker-ebs/` - Cloudflare Workers EBS: pairing, ingest validation, active streamer cap, Twitch PubSub broadcast.
+- `apps/desktop/` - Windows .NET 8 uploader: watches Victoria 3 autosaves, parses state, sends `/ingest`.
+- `apps/extension-panel/` - Twitch-hosted config/panel files. Viewer UI receives state through Twitch Extension PubSub and uses bundled/static UI resources.
 
-## Packages
-- `packages/shared/` – Shared TypeScript schemas & message types (Zod) used by Worker and (later) the Frontend.
+## API Contract
+- `spec/openapi.json` defines the API reference and contract.
+- Generated code is not committed. Each app generates what it needs from the OpenAPI spec.
+- The Worker generates TypeScript operation types with `npm run oas:gen`.
 
-## Features
-- Streamer-friendly pairing (**6-char code**).
-- **Active streamer cap** (default 100).
-- **Strict ingest policy**: update **only every ≥ 5 minutes** **and** only when **`save_hash` changed** (new autosave). Strictly increasing `seq`.
-- Viewers are **PubSub-only** (no last-state HTTP endpoint). On first load, show “Waiting for next update…”. Use `/bootstrap` (ETag) to resolve labels/flags/markets.
-- **Compact payloads** (< **5 KB**) via `bootstrap` dictionaries + numeric/ID-based snapshots.
-- **Serverless** EBS on Cloudflare Workers + KV.
+## Worker Endpoints
+- `GET /health`
+- `POST /pair/init`
+- `POST /pair/complete`
+- `POST /ingest`
 
 ## Quickstart
 
-**Prereqs**: Node 18+, npm, Cloudflare Wrangler, .NET 8 SDK.
+Prereqs: Node.js, npm, Cloudflare Wrangler, .NET 8 SDK.
 
 ```bash
-# clone
-git clone <this-repo>.git
-cd vic3-unofficial-twitch-extension
+npm install
+dotnet tool restore
 
-# JS deps (workspaces)
-npm i
-
-# Worker: configure KV & secrets, then deploy
-cd apps/worker-ebs
-npx wrangler login
-# create KV namespace, set IDs in wrangler.toml
-npx wrangler secret put EXT_SHARED_SECRET     # Base64 from Twitch (Extensions → Secrets)
-# optional: pairing guard
-npx wrangler secret put INGEST_PAIR_SECRET
-npm run deploy
-
-# Panel (skeleton)
-cd ../../apps/extension-panel
-npm i
-npm run build
-# upload dist ZIP to Twitch Dev Console (Hosted Test → Release)
-
-# Desktop (.NET skeleton)
-cd ../../apps/desktop
-dotnet restore
-dotnet build -c Release
+npm run typecheck --workspace apps/worker-ebs
+dotnet build apps/desktop/src/Vic3Unofficial.Twitch.Desktop.csproj
 ```
 
-## Secrets & Safety
-- **Never** commit secrets. Use `wrangler secret put …` for Worker.
-- Twitch hosts your **frontend assets**; EBS handles **data & PubSub** only.
-- No Extension secrets in the desktop app.
+Worker deployment:
+
+```bash
+cd apps/worker-ebs
+npm run deploy
+```
+
+Set Worker secrets with Wrangler, never in committed files:
+
+```bash
+npx wrangler secret put EXT_SHARED_SECRET
+```
+
+## Public Repo Safety
+- Twitch extension secrets, ingest tokens, `.dev.vars`, and local settings containing tokens stay out of version control.
+- Worker secrets are configured through Cloudflare.
 
 ## License
-Use a permissive license. Recommended: **Apache-2.0** (explicit patent grant). Alternatively **MIT**. Add a `LICENSE` file and set `"license"` in `package.json`.
-
-## Contributing
-Read `docs/CONTRIBUTING.md` (coding style, commit messages, DCO/Sign-off).
+Apache-2.0.

@@ -1,4 +1,6 @@
 {
   "workspaces": true,
-  "reject": ["zod", "@hono/zod-validator", "zod-openapi"]
+  "reject": [
+    "typescript"
+  ]
 }

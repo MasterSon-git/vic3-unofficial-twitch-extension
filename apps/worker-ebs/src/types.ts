@@ -5,6 +5,7 @@ export type Env = {
 
   MAX_ACTIVE_CHANNELS: string | number;
   INGEST_BASE_INTERVAL_MS: string | number;
+  ALLOW_TRYCLOUDFLARE_ORIGINS?: string | boolean;
 };
 
 export type Bindings = Env & {

@@ -14,6 +14,11 @@ EXT_OWNER_USER_ID = "484239140"
 # Policy knobs
 MAX_ACTIVE_CHANNELS = 100
 INGEST_BASE_INTERVAL_MS = 300000   # 5 minutes
+ALLOW_TRYCLOUDFLARE_ORIGINS = true # local Twitch Extension testing only; disable before public release
 
-[observability]
+[observability.logs]
 enabled = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
