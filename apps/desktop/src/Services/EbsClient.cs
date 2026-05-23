@@ -46,6 +46,7 @@ public sealed class EbsClient : IEbsClient
     public string BaseUrl => _settings.WorkerBaseUrl.TrimEnd('/');
     public string? ChannelId { get; private set; }
     public string? IngestToken { get; private set; }
+    public bool HasActiveSlot { get; private set; }
 
     public async Task<bool> CompletePairingAsync(string code)
     {
@@ -67,6 +68,7 @@ public sealed class EbsClient : IEbsClient
 
         ChannelId = response.ChannelId;
         IngestToken = response.IngestToken.ToString();
+        HasActiveSlot = true;
         _log.LogInformation("Pairing OK. ChannelId={ChannelId}, TokenLen={Len}",
             ChannelId, IngestToken?.Length ?? 0);
         _status.Post(StatusLevel.Info, $"Paired with channel {ChannelId}");
@@ -77,6 +79,70 @@ public sealed class EbsClient : IEbsClient
             return true;
         }
         return false;
+    }
+
+    public async Task<bool> ValidateSavedPairingAsync()
+    {
+        if (string.IsNullOrEmpty(IngestToken)) return false;
+
+        try
+        {
+            var response = await _api.GetPairTokenStatusAsync(IngestToken);
+            if (response.Paired && !string.IsNullOrWhiteSpace(response.ChannelId))
+            {
+                ChannelId = response.ChannelId;
+                HasActiveSlot = true;
+                return true;
+            }
+        }
+        catch (ApiException ex)
+        {
+            if ((HttpStatusCode)ex.StatusCode == (HttpStatusCode)429)
+            {
+                HasActiveSlot = false;
+                _status.Post(StatusLevel.Warning, "No active backend slot is currently available. Pairing remains saved.");
+                return false;
+            }
+
+            await HandleAuthFailures(ex.StatusCode);
+            return false;
+        }
+
+        HasActiveSlot = false;
+        _tokenStore.Clear();
+        ChannelId = null;
+        IngestToken = null;
+        return false;
+    }
+
+    public async Task UnpairAsync()
+    {
+        var token = IngestToken;
+        var serverRevoked = string.IsNullOrEmpty(token);
+        if (!string.IsNullOrEmpty(token))
+        {
+            try
+            {
+                await _api.RevokePairAsync(token);
+                serverRevoked = true;
+            }
+            catch (ApiException ex) when ((HttpStatusCode)ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                _log.LogWarning("Pair/revoke rejected: {Status}", ex.StatusCode);
+                _status.Post(StatusLevel.Warning, "Server unpair failed: saved token is no longer valid. Use Twitch config Unpair to clear the server pairing.");
+            }
+            catch (ApiException ex)
+            {
+                _log.LogWarning("Pair/revoke failed: {Status}", ex.StatusCode);
+                _status.Post(StatusLevel.Warning, $"Server unpair failed: {ex.StatusCode}. Local pairing was removed.");
+            }
+        }
+
+        _tokenStore.Clear();
+        ChannelId = null;
+        IngestToken = null;
+        HasActiveSlot = false;
+        _status.Post(StatusLevel.Info, serverRevoked ? "Unpaired" : "Local pairing removed");
     }
 
     public async Task IngestAsync(Snapshot snapshot)
@@ -91,6 +157,11 @@ public sealed class EbsClient : IEbsClient
         {
             var responseText = ex.Response ?? "";
             await HandleAuthFailures(ex.StatusCode);
+            if ((HttpStatusCode)ex.StatusCode == (HttpStatusCode)429)
+            {
+                HasActiveSlot = false;
+                _status.Post(StatusLevel.Warning, "No active backend slot is currently available. Ingest paused.");
+            }
             throw new Exception($"ingest failed: {ex.StatusCode} {responseText}", ex);
         }
     }
@@ -132,6 +203,8 @@ public sealed class EbsClient : IEbsClient
             _tokenStore.Clear();
             ChannelId = null;
             IngestToken = null;
+            HasActiveSlot = false;
+            _status.Post(StatusLevel.Warning, "Pairing expired or revoked. Pair again from the Twitch config view.");
         }
         return Task.CompletedTask;
     }

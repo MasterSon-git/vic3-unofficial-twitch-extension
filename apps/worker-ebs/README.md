@@ -18,7 +18,10 @@ JSON request bodies are defined as named schemas under `components.schemas` and 
 ## Endpoints
 - `GET /health`
 - `POST /pair/init`
+- `POST /pair/status`
 - `POST /pair/complete`
+- `POST /pair/revoke`
+- `POST /pair/revoke/channel`
 - `POST /ingest`
 
 Viewers receive state through Twitch Extension PubSub.
@@ -27,6 +30,9 @@ Viewers receive state through Twitch Extension PubSub.
 - Hono handles routing.
 - AJV validates request bodies against schemas from the OpenAPI spec.
 - Handler coverage is checked at TypeScript build time through generated OpenAPI operation types.
+- Pairing codes allow three failed completion attempts.
+- Completed pairings live for 30 days.
+- Active channel slots are leased for 24 hours. Reserved channel IDs can displace the oldest non-reserved active channel, but still count toward the active channel limit.
 
 ## Secrets
 

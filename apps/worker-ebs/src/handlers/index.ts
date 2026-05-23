@@ -2,7 +2,10 @@ import type { ExactOperationHandlerMap, AssertExactOperationMap } from '../lib/t
 import { handleGetHealthOperation } from './getHealth'
 import { handleInitPairOperation } from './initPair'
 import { handleGetPairStatusOperation } from './getPairStatus'
+import { handleGetPairTokenStatusOperation } from './getPairTokenStatus'
 import { handleCompletePairOperation } from './completePair'
+import { handleRevokePairOperation } from './revokePair'
+import { handleRevokeChannelPairOperation } from './revokeChannelPair'
 import { handleIngestSnapshotOperation } from './ingestSnapshot'
 
 /**
@@ -12,7 +15,10 @@ export const operationHandlers = {
   getHealth: handleGetHealthOperation,
   initPair: handleInitPairOperation,
   getPairStatus: handleGetPairStatusOperation,
+  getPairTokenStatus: handleGetPairTokenStatusOperation,
   completePair: handleCompletePairOperation,
+  revokePair: handleRevokePairOperation,
+  revokeChannelPair: handleRevokeChannelPairOperation,
   ingestSnapshot: handleIngestSnapshotOperation,
 } satisfies ExactOperationHandlerMap
 

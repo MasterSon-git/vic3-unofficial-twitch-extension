@@ -1,6 +1,7 @@
 using System;
 using System.CommandLine;
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -73,8 +74,14 @@ public partial class App : Application
                 // Settings
                 services.AddSingleton<ISettingsService, JsonSettingsService>();
 
-                // HttpClient + EBS
-                services.AddHttpClient<IEbsClient, EbsClient>();
+                // HttpClient + EBS. The client carries the current pairing token, so it must be shared across views.
+                services.AddHttpClient("EbsClient");
+                services.AddSingleton<IEbsClient>(sp => new EbsClient(
+                    sp.GetRequiredService<IHttpClientFactory>().CreateClient("EbsClient"),
+                    sp.GetRequiredService<ISettingsService>(),
+                    sp.GetRequiredService<ITokenStore>(),
+                    sp.GetRequiredService<ILogger<EbsClient>>(),
+                    sp.GetRequiredService<IStatusSink>()));
 
                 // Domain Services
                 services.AddSingleton<IAutosaveWatcher, AutosaveWatcher>();

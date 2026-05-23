@@ -1,26 +1,24 @@
 import type { OperationHandler, RequestBodyJson, ResponseBody } from '../lib/types'
 import { json } from '../lib/responses'
 import { verifyBroadcasterOrAdminForChannel } from '../lib/twitchAuth'
-import { getChannelPairStatus } from '../lib/pairings'
+import { revokeChannelPairing } from '../lib/pairings'
 
 /**
- * getPairStatus: POST /pair/status
+ * revokeChannelPair: POST /pair/revoke/channel
  */
-export const handleGetPairStatusOperation: OperationHandler<'getPairStatus'> = async ({
+export const handleRevokeChannelPairOperation: OperationHandler<'revokeChannelPair'> = async ({
   requestBody,
   requestHeaders,
   env,
 }) => {
-  const input: RequestBodyJson<'getPairStatus'> = requestBody
+  const input: RequestBodyJson<'revokeChannelPair'> = requestBody
   const channelId = input.channelId
 
   const auth = await verifyBroadcasterOrAdminForChannel(env.EXT_SHARED_SECRET, requestHeaders.authorization, channelId)
   if (!auth.ok) return json({ error: auth.error }, auth.status)
 
-  const pairState = await getChannelPairStatus(env, channelId)
-  const response: ResponseBody<'getPairStatus', 200> = pairState.paired
-    ? { paired: true, pairedAt: pairState.pairedAt }
-    : { paired: false }
+  await revokeChannelPairing(env, channelId)
 
+  const response: ResponseBody<'revokeChannelPair', 200> = { status: 'revoked' }
   return json(response)
 }

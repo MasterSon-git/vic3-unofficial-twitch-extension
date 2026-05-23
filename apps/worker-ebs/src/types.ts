@@ -5,10 +5,12 @@ export type Env = {
 
   MAX_ACTIVE_CHANNELS: string | number;
   INGEST_BASE_INTERVAL_MS: string | number;
+  RESERVED_CHANNEL_IDS?: string;
   ALLOW_TRYCLOUDFLARE_ORIGINS?: string | boolean;
 };
 
 export type Bindings = Env & {
   KV: KVNamespace;
+  PAIRING_STATE: DurableObjectNamespace;
   INGEST_PAIR_SECRET?: string;
 };

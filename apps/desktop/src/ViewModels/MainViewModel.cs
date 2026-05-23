@@ -1,26 +1,28 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.ObjectModel;
+using System.Threading.Tasks;
 using Vic3Unofficial.Twitch.Desktop.Infrastructure;
 using Vic3Unofficial.Twitch.Desktop.Models;
 using Vic3Unofficial.Twitch.Desktop.Services;
 using Vic3Unofficial.Twitch.Desktop.Views;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Vic3Unofficial.Twitch.Desktop.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
     private readonly ISettingsService _settings;
+    private readonly IEbsClient _ebs;
+    private readonly IServiceProvider _services;
+
     public ReadOnlyObservableCollection<StatusItem> StatusEntries { get; }
 
     [ObservableProperty] private string _status = "Not paired";
     [ObservableProperty] private string _autosaveDir;
-    [ObservableProperty] private bool _isWatching; // optional fürs UI – hier nicht direkt gesteuert
-    public string WatchingButtonText => IsWatching ? "Stop Watching" : "Start Watching";
+    [ObservableProperty] private bool _isWatching;
 
-    private readonly IEbsClient _ebs;
-    private readonly IServiceProvider _services;
+    public string WatchingButtonText => IsWatching ? "Stop Watching" : "Start Watching";
 
     public MainViewModel(ISettingsService settings, IStatusSink statusSink, IEbsClient ebs, IServiceProvider services)
     {
@@ -28,21 +30,41 @@ public partial class MainViewModel : ObservableObject
         _ebs = ebs;
         _services = services;
         _autosaveDir = settings.AutosaveDir;
-        Status = string.IsNullOrEmpty(_ebs.IngestToken)
-            ? "Not paired"
-            : $"Paired (channel {_ebs.ChannelId})";
+        RefreshPairingStatus();
 
-       StatusEntries = statusSink.Events;
+        StatusEntries = statusSink.Events;
     }
 
     partial void OnAutosaveDirChanged(string value) => _settings.AutosaveDir = value;
+
+    public async Task InitializeAsync()
+    {
+        if (string.IsNullOrEmpty(_ebs.IngestToken)) return;
+
+        Status = "Checking saved pairing...";
+        await _ebs.ValidateSavedPairingAsync();
+        RefreshPairingStatus();
+    }
+
+    private void RefreshPairingStatus()
+    {
+        if (string.IsNullOrEmpty(_ebs.IngestToken))
+        {
+            Status = "Not paired";
+            return;
+        }
+
+        Status = _ebs.HasActiveSlot
+            ? $"Paired (channel {_ebs.ChannelId})"
+            : $"Paired (channel {_ebs.ChannelId}, no active backend slot)";
+    }
 
     [RelayCommand]
     private void ToggleWatching()
     {
         IsWatching = !IsWatching;
         OnPropertyChanged(nameof(WatchingButtonText));
-        Status = IsWatching ? "Watching autosaves…" : "Stopped.";
+        Status = IsWatching ? "Watching autosaves..." : "Stopped.";
     }
 
     [RelayCommand]
@@ -52,7 +74,14 @@ public partial class MainViewModel : ObservableObject
         dlg.Owner = System.Windows.Application.Current.MainWindow;
         if (dlg.ShowDialog() == true)
         {
-            Status = _ebs.IngestToken is null ? "Pairing failed" : $"Paired (channel { _ebs.ChannelId })";
+            RefreshPairingStatus();
         }
+    }
+
+    [RelayCommand]
+    private async Task Unpair()
+    {
+        await _ebs.UnpairAsync();
+        RefreshPairingStatus();
     }
 }

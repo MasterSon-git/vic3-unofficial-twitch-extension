@@ -1,6 +1,8 @@
 import type { OperationHandler, RequestBodyJson, ResponseBody } from '../lib/types'
 import { json } from '../lib/responses'
 import { sendPubSubBroadcast } from '../twitch'
+import { admitActiveChannel } from '../lib/activeSessions'
+import { revokeChannelPairing, validateIngestToken } from '../lib/pairings'
 
 function numberFromEnv(value: string | number | undefined, fallback: number) {
   const parsed = Number(value)
@@ -23,9 +25,12 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
   const token = requestHeaders['x-ingest-token']
   if (!token) return json({ error: 'missing_ingest_token' }, 401)
 
-  const channelId = await env.KV.get(`ingest:${token}`)
+  const channelId = await validateIngestToken(env, token)
   if (!channelId) return json({ error: 'invalid_ingest_token' }, 401)
   if (snapshot.channelId !== channelId) return json({ error: 'channel_mismatch' }, 400)
+  const admission = await admitActiveChannel(env, channelId)
+  if (!admission.ok) return json({ error: admission.error }, 429)
+  if (admission.evictedChannelId) await revokeChannelPairing(env, admission.evictedChannelId)
 
   const metaKey = `meta:${channelId}`
   const meta = (await env.KV.get(metaKey, { type: 'json' })) as {
@@ -62,9 +67,8 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
 
   try {
     await sendPubSubBroadcast(env, channelId, message)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'pubsub_failed'
-    return json({ error: message }, 502)
+  } catch {
+    return json({ error: 'pubsub_failed' }, 502)
   }
 
   const response: ResponseBody<'ingestSnapshot', 200> = { status: 'ok' }

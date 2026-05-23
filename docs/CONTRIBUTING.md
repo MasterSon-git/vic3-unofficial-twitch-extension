@@ -26,6 +26,7 @@ npx wrangler deploy --dry-run
 - Twitch extension secrets, ingest tokens, `.dev.vars`, local desktop settings, and Cloudflare credentials stay out of version control.
 - Use `wrangler secret put EXT_SHARED_SECRET` for Worker secrets.
 - Treat public repository changes to config files carefully.
+- Keep temporary development origins such as `ALLOW_TRYCLOUDFLARE_ORIGINS` explicit and disable them before public release.
 
 ## Generated Files
 - Worker TypeScript API types are generated with `npm run oas:gen --workspace apps/worker-ebs`.

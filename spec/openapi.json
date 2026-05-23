@@ -226,6 +226,60 @@
         ],
         "additionalProperties": false
       },
+      "PairTokenStatusResponse": {
+        "type": "object",
+        "description": "Non-sensitive status for a desktop ingest token.",
+        "properties": {
+          "paired": {
+            "type": "boolean",
+            "description": "True when the ingest token is currently valid.",
+            "example": true
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Twitch broadcaster channel ID associated with the token when valid.",
+            "minLength": 1,
+            "example": "123456789"
+          }
+        },
+        "required": [
+          "paired"
+        ],
+        "additionalProperties": false
+      },
+      "PairRevokeChannelRequest": {
+        "type": "object",
+        "description": "Request to revoke the desktop pairing for the broadcaster channel from the Twitch Extension config view.",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Twitch broadcaster channel ID from the config view authorization context.",
+            "minLength": 1,
+            "example": "123456789"
+          }
+        },
+        "required": [
+          "channelId"
+        ],
+        "additionalProperties": false
+      },
+      "PairRevokeResponse": {
+        "type": "object",
+        "description": "Successful pairing revocation response.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Revocation status.",
+            "enum": [
+              "revoked"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
       "PairCompleteRequest": {
         "type": "object",
         "description": "Request to exchange a pairing code for an ingest token.",
@@ -262,7 +316,7 @@
           "expiresIn": {
             "type": "integer",
             "description": "Ingest token lifetime in seconds.",
-            "example": 604800
+            "example": 2592000
           }
         },
         "required": [
@@ -479,6 +533,25 @@
           "pairedAt": "2025-10-31T12:00:00Z"
         }
       },
+      "PairTokenStatusResponseExample": {
+        "summary": "Valid token status",
+        "value": {
+          "paired": true,
+          "channelId": "123456789"
+        }
+      },
+      "PairRevokeChannelRequestExample": {
+        "summary": "Pair revoke channel request",
+        "value": {
+          "channelId": "123456789"
+        }
+      },
+      "PairRevokeResponseExample": {
+        "summary": "Pairing revoked",
+        "value": {
+          "status": "revoked"
+        }
+      },
       "PairCompleteRequestExample": {
         "summary": "Pair complete request",
         "value": {
@@ -490,7 +563,7 @@
         "value": {
           "channelId": "123456789",
           "ingestToken": "550e8400-e29b-41d4-a716-446655440000",
-          "expiresIn": 604800
+          "expiresIn": 2592000
         }
       },
       "IngestOkExample": {
@@ -792,6 +865,190 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/pair/revoke": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "operationId": "revokePair",
+        "summary": "Revoke desktop pairing",
+        "description": "Revokes the desktop ingest token presented in the x-ingest-token header. Unknown or expired tokens are rejected so the desktop uploader cannot silently report a server-side unpair that did not happen.",
+        "security": [
+          {
+            "ingestToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IngestTokenHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pairing revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairRevokeResponse"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/PairRevokeResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/pair/status/token": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "operationId": "getPairTokenStatus",
+        "summary": "Read desktop token status",
+        "description": "Returns non-sensitive status for the desktop ingest token presented in the x-ingest-token header.",
+        "security": [
+          {
+            "ingestToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IngestTokenHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desktop ingest token is valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairTokenStatusResponse"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/PairTokenStatusResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          },
+          "default": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/pair/revoke/channel": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "operationId": "revokeChannelPair",
+        "summary": "Revoke broadcaster channel pairing",
+        "description": "Revokes the desktop pairing for the broadcaster channel from the Twitch Extension config view. The Twitch Extension JWT must belong to the same channel and have broadcaster or admin role.",
+        "security": [
+          {
+            "twitchExtension": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AuthorizationHeader"
+          }
+        ],
+        "requestBody": {
+          "description": "Broadcaster channel to unpair.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairRevokeChannelRequest"
+              },
+              "examples": {
+                "default": {
+                  "$ref": "#/components/examples/PairRevokeChannelRequestExample"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing revoked or already absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairRevokeResponse"
+                },
+                "examples": {
+                  "default": {
+                    "$ref": "#/components/examples/PairRevokeResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request channel does not match the Twitch JWT channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "channelMismatch": {
+                    "$ref": "#/components/examples/ChannelMismatchError"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Twitch Extension JWT is missing, malformed, expired, or signed with a different secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                },
+                "examples": {
+                  "invalidJwt": {
+                    "$ref": "#/components/examples/InvalidTwitchJwtError"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "default": {
             "$ref": "#/components/responses/ServerError"

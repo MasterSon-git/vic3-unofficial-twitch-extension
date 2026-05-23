@@ -40,7 +40,6 @@ export async function sendPubSubBroadcast(env: Env, channelId: string, message: 
     })
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PubSub failed ${res.status}: ${text}`);
+    throw new Error(`pubsub_failed:${res.status}`);
   }
 }

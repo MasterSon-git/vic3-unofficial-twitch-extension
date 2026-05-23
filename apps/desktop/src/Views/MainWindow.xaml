@@ -6,7 +6,8 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Vertical" Margin="0,0,0,12">
       <TextBlock Text="{Binding Status}" FontSize="16" FontWeight="SemiBold" />
       <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-        <Button Content="Pair…" Command="{Binding PairCommand}" Margin="0,0,8,0" Width="100"/>
+        <Button Content="Pair..." Command="{Binding PairCommand}" Margin="0,0,8,0" Width="100"/>
+        <Button Content="Unpair" Command="{Binding UnpairCommand}" Margin="0,0,8,0" Width="100"/>
         <Button Content="{Binding WatchingButtonText}" Command="{Binding ToggleWatchingCommand}" Width="150"/>
       </StackPanel>
     </StackPanel>

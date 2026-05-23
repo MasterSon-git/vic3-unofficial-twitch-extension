@@ -8,7 +8,10 @@ public interface IEbsClient
     string BaseUrl { get; }
     string? ChannelId { get; }
     string? IngestToken { get; }
+    bool HasActiveSlot { get; }
 
     Task<bool> CompletePairingAsync(string code);
+    Task<bool> ValidateSavedPairingAsync();
+    Task UnpairAsync();
     Task IngestAsync(Snapshot snapshot);
 }
