@@ -1,8 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -12,22 +12,25 @@
     <Compile Remove="Generated/**/*.cs" />
   </ItemGroup>
 
+  <Target Name="RestoreDotNetTools" BeforeTargets="GenerateEbsApiClient">
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../.." Command="dotnet tool restore" />
+  </Target>
+
   <Target Name="GenerateEbsApiClient" BeforeTargets="CoreCompile">
     <MakeDir Directories="$(MSBuildProjectDirectory)/Generated" />
-    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../.."
-          Command="dotnet nswag openapi2csclient /input:spec/openapi.json /output:apps/desktop/src/Generated/EbsApiClient.g.cs /namespace:Vic3Unofficial.Twitch.Desktop.Generated /classname:EbsApiClient /operationGenerationMode:SingleClientFromOperationId /jsonLibrary:SystemTextJson /injectHttpClient:true /disposeHttpClient:false /generateClientInterfaces:false /generateOptionalPropertiesAsNullable:true /generateNullableReferenceTypes:true /generateJsonMethods:false /newLineBehavior:LF" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../.." Command="dotnet nswag openapi2csclient /input:spec/openapi.json /output:apps/desktop/src/Generated/EbsApiClient.g.cs /namespace:Vic3Unofficial.Twitch.Desktop.Generated /classname:EbsApiClient /operationGenerationMode:SingleClientFromOperationId /jsonLibrary:SystemTextJson /injectHttpClient:true /disposeHttpClient:false /generateClientInterfaces:false /generateOptionalPropertiesAsNullable:true /generateNullableReferenceTypes:true /generateJsonMethods:false /newLineBehavior:LF" />
     <ItemGroup>
       <Compile Include="Generated/EbsApiClient.g.cs" />
     </ItemGroup>
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
+    <PackageReference Include="System.CommandLine" Version="2.0.8" />
   </ItemGroup>
 
 </Project>

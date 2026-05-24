@@ -19,29 +19,14 @@ public partial class App : Application
     public static LogLevel StartupLogLevel { get; set; } = LogLevel.Warning;
     public static IHost Host { get; private set; } = null!;
 
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
-        var logLevelOption = new Option<LogLevel>(
-            name: "--logLevel",
-            description: "Specifies minimum log level (Trace, Debug, Information, Warning, Error, Critical).",
 #if DEBUG
-            getDefaultValue: () => LogLevel.Debug
+        var parsedLogLevel = LogLevel.Debug;
 #else
-            getDefaultValue: () => LogLevel.Warning
+        var parsedLogLevel = LogLevel.Warning;
 #endif
-        );
-
-        var root = new RootCommand("Vic3 Unofficial Twitch Desktop Uploader");
-        root.AddOption(logLevelOption);
-
-        LogLevel parsedLogLevel = LogLevel.Warning; // fallback
-
-        root.SetHandler((logLevel) =>
-        {
-            parsedLogLevel = logLevel;
-        }, logLevelOption);
-
-        await root.InvokeAsync(e.Args);
+        parsedLogLevel = ParseLogLevel(e.Args, parsedLogLevel);
 
         StartupLogLevel = parsedLogLevel;
 
@@ -103,6 +88,24 @@ public partial class App : Application
         var main = Host.Services.GetRequiredService<MainWindow>();
         MainWindow = main;
         main.Show();
+    }
+
+    private static LogLevel ParseLogLevel(string[] args, LogLevel fallback)
+    {
+        var logLevelOption = new Option<LogLevel>("--logLevel")
+        {
+            Description = "Specifies minimum log level (Trace, Debug, Information, Warning, Error, Critical)."
+        };
+        var root = new RootCommand("Vic3 Unofficial Twitch Desktop Uploader")
+        {
+            TreatUnmatchedTokensAsErrors = false
+        };
+        root.Add(logLevelOption);
+
+        var parseResult = root.Parse(args);
+        if (parseResult.Errors.Count > 0 || parseResult.GetResult(logLevelOption) is null) return fallback;
+
+        return parseResult.GetValue(logLevelOption);
     }
 
     protected override async void OnExit(ExitEventArgs e)
