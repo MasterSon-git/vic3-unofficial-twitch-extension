@@ -82,6 +82,7 @@ packages/
 public/flags/generated/
 !public/flags/README.md
 apps/worker-ebs/src/generated/
+apps/extension-panel/src/generated/
 apps/desktop/src/Generated/
 apps/desktop/src/Vic3Unofficial.Twitch.Desktop/Generated/
 

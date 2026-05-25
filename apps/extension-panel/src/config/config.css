@@ -1,0 +1,102 @@
+@import '../shared/base.css';
+
+body {
+  padding: 0;
+}
+
+.config-shell {
+  min-height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.config-card {
+  width: min(620px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 22px;
+  box-sizing: border-box;
+}
+
+.config-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.config-copy {
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+
+.config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.button {
+  min-width: 118px;
+  min-height: 38px;
+  padding: 9px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button.secondary {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  font-weight: 700;
+}
+
+.state::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.state.paired::before {
+  background: var(--good);
+}
+
+.state.unpaired::before {
+  background: var(--warning);
+}
+
+.state.error::before {
+  background: var(--danger);
+}
+
+.pair-code {
+  min-height: 34px;
+  margin-top: 16px;
+  font: 800 28px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  letter-spacing: .15em;
+}
+
+.hint {
+  color: var(--muted);
+  min-height: 22px;
+  margin: 10px 0 0;
+}

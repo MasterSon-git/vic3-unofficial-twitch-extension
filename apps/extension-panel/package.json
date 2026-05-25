@@ -3,6 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "dependencies": {
+  "scripts": {
+    "oas:gen:init": "rimraf src/generated/openapi && mkdirp src/generated/openapi",
+    "oas:gen:ts": "openapi-typescript ../../spec/openapi.json -o src/generated/openapi/types.d.ts",
+    "oas:gen": "npm run oas:gen:init && npm run oas:gen:ts",
+    "typecheck": "npm run oas:gen && tsc -p tsconfig.json --noEmit",
+    "build": "npm run oas:gen && vite build",
+    "dev": "npm run oas:gen && vite --host 127.0.0.1"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "mkdirp": "^3.0.1",
+    "openapi-typescript": "^7.13.0",
+    "rimraf": "^6.1.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
   }
 }

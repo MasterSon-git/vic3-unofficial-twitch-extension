@@ -7,7 +7,7 @@ The desktop uploader sends game-state snapshots to the Worker. The Worker valida
 ## Apps
 - `apps/worker-ebs/` - Cloudflare Workers EBS: pairing, ingest validation, active streamer cap, Twitch PubSub broadcast.
 - `apps/desktop/` - Windows uploader: watches Victoria 3 saves, parses state, sends `/ingest`.
-- `apps/extension-panel/` - Twitch-hosted config/panel files. Viewer UI receives state through Twitch Extension PubSub and uses bundled/static UI resources.
+- `apps/extension-panel/` - Twitch-hosted config and video overlay files. Viewer UI receives state through Twitch Extension PubSub and uses bundled/static UI resources.
 
 ## API Contract
 - `spec/openapi.json` defines the API reference and contract.
