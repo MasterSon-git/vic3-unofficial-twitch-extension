@@ -5,12 +5,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Win32;
 using Vic3Unofficial.Twitch.Desktop.Infrastructure;
 using Vic3Unofficial.Twitch.Desktop.Models;
 using Vic3Unofficial.Twitch.Desktop.Services;
-using Vic3Unofficial.Twitch.Desktop.Views;
 
 namespace Vic3Unofficial.Twitch.Desktop.ViewModels;
 
@@ -20,7 +18,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IEbsClient _ebs;
     private readonly IUploadControl _uploadControl;
     private readonly IStatusSink _status;
-    private readonly IServiceProvider _services;
+    private readonly IDialogService _dialogs;
 
     public ReadOnlyObservableCollection<StatusItem> StatusEntries { get; }
 
@@ -66,13 +64,13 @@ public partial class MainViewModel : ObservableObject
         IStatusSink statusSink,
         IEbsClient ebs,
         IUploadControl uploadControl,
-        IServiceProvider services)
+        IDialogService dialogs)
     {
         _settings = settings;
         _ebs = ebs;
         _uploadControl = uploadControl;
         _status = statusSink;
-        _services = services;
+        _dialogs = dialogs;
         _saveDir = settings.SaveDir;
         StatusEntries = statusSink.Events;
         SaveFileFormat = settings.GetConfiguredSaveFileFormat();
@@ -150,11 +148,9 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Pair()
+    private async Task Pair()
     {
-        var dlg = _services.GetRequiredService<PairWindow>();
-        dlg.Owner = Application.Current.MainWindow;
-        if (dlg.ShowDialog() == true)
+        if (await _dialogs.ShowPairDialogAsync())
         {
             RefreshComputedState();
         }

@@ -5,14 +5,23 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using Vic3Unofficial.Twitch.Desktop.Models;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Models;
 
-namespace Vic3Unofficial.Twitch.Desktop.Services;
+namespace Vic3Unofficial.Twitch.Desktop.Parsing.Services;
+
+[Flags]
+internal enum ParsedSaveSection
+{
+    None = 0,
+    Countries = 1,
+    CountryRankings = 2
+}
 
 public sealed partial class SaveParser : ISaveParser
 {
     private const string UnsupportedBinaryMessage =
         "Unsupported Victoria 3 save format. Set save_file_format to 'zip_text_all' or 'text' and create a new save.";
+    private const ParsedSaveSection RequiredSections = ParsedSaveSection.Countries | ParsedSaveSection.CountryRankings;
 
     public (string saveHash, List<Country> countries) ParseForSnapshot(string savePath)
     {
@@ -69,6 +78,7 @@ public sealed partial class SaveParser : ISaveParser
         var rankingListDepth = -1;
         CountryRankingBuilder? ranking = null;
         var rankingDepth = -1;
+        var parsedSections = ParsedSaveSection.None;
 
         string? line;
         while ((line = reader.ReadLine()) is not null)
@@ -131,9 +141,20 @@ public sealed partial class SaveParser : ISaveParser
             }
 
             if (databaseDepth > 0 && depth < databaseDepth) databaseDepth = -1;
-            if (countryManagerDepth > 0 && depth < countryManagerDepth) countryManagerDepth = -1;
+            if (countryManagerDepth > 0 && depth < countryManagerDepth)
+            {
+                countryManagerDepth = -1;
+                parsedSections |= ParsedSaveSection.Countries;
+            }
+
             if (rankingListDepth > 0 && depth < rankingListDepth) rankingListDepth = -1;
-            if (rankingRootDepth > 0 && depth < rankingRootDepth) rankingRootDepth = -1;
+            if (rankingRootDepth > 0 && depth < rankingRootDepth)
+            {
+                rankingRootDepth = -1;
+                parsedSections |= ParsedSaveSection.CountryRankings;
+            }
+
+            if (HasParsedRequiredSections(parsedSections)) break;
         }
 
         return countries
@@ -145,6 +166,9 @@ public sealed partial class SaveParser : ISaveParser
             .Take(300)
             .ToList();
     }
+
+    private static bool HasParsedRequiredSections(ParsedSaveSection parsedSections) =>
+        (parsedSections & RequiredSections) == RequiredSections;
 
     private static void ParseCountryLine(CountryBuilder country, string trimmed, int depth, int countryDepth, ref int gdpDepth)
     {

@@ -454,6 +454,11 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ApiError"
+            },
+            "examples": {
+              "payloadTooLarge": {
+                "$ref": "#/components/examples/PayloadTooLargeError"
+              }
             }
           }
         }
@@ -464,6 +469,11 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ApiError"
+            },
+            "examples": {
+              "activeStreamersLimit": {
+                "$ref": "#/components/examples/ActiveStreamersLimitError"
+              }
             }
           }
         }
@@ -631,11 +641,30 @@
           "lastSeq": 42
         }
       },
+      "NeedsNewAutosaveError": {
+        "summary": "Save was already ingested",
+        "value": {
+          "error": "needs_new_autosave"
+        }
+      },
       "TooSoonError": {
         "summary": "Ingest interval not elapsed",
         "value": {
           "error": "too_soon",
           "retryInMs": 120000
+        }
+      },
+      "PayloadTooLargeError": {
+        "summary": "Snapshot exceeds Twitch PubSub payload size",
+        "value": {
+          "error": "payload_too_large",
+          "hint": "Reduce the broadcasted snapshot size below the Twitch PubSub limit."
+        }
+      },
+      "ActiveStreamersLimitError": {
+        "summary": "No active streamer slot available",
+        "value": {
+          "error": "active_streamers_limit_reached"
         }
       },
       "PubSubFailedError": {
@@ -1182,6 +1211,9 @@
                 "examples": {
                   "staleSequence": {
                     "$ref": "#/components/examples/StaleSequenceError"
+                  },
+                  "needsNewAutosave": {
+                    "$ref": "#/components/examples/NeedsNewAutosaveError"
                   }
                 }
               }
@@ -1191,7 +1223,7 @@
             "$ref": "#/components/responses/TooLarge"
           },
           "429": {
-            "description": "Configured ingest interval has not elapsed.",
+            "description": "Configured ingest interval has not elapsed or no active streamer slot is available.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1200,6 +1232,9 @@
                 "examples": {
                   "tooSoon": {
                     "$ref": "#/components/examples/TooSoonError"
+                  },
+                  "activeStreamersLimit": {
+                    "$ref": "#/components/examples/ActiveStreamersLimitError"
                   }
                 }
               }

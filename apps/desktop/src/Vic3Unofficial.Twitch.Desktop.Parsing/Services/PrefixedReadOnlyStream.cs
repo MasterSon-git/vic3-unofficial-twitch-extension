@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace Vic3Unofficial.Twitch.Desktop.Services;
+namespace Vic3Unofficial.Twitch.Desktop.Parsing.Services;
 
 internal sealed class PrefixedReadOnlyStream : Stream
 {

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Vic3Unofficial.Twitch.Desktop.Models;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Models;
 
-namespace Vic3Unofficial.Twitch.Desktop.Services;
+namespace Vic3Unofficial.Twitch.Desktop.Parsing.Services;
 
 public interface ISaveParser
 {

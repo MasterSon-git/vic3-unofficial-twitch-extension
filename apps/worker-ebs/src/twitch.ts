@@ -45,7 +45,13 @@ function isRetryableStatus(status: number) {
 }
 
 async function sendPubSubBroadcastOnce(env: Env, channelId: string, message: string) {
-  const jwt = await buildEbsJwt(env, channelId);
+  let jwt: string;
+  try {
+    jwt = await buildEbsJwt(env, channelId);
+  } catch {
+    throw new PubSubBroadcastError("rejected");
+  }
+
   const res = await fetch("https://api.twitch.tv/helix/extensions/pubsub", {
     method: "POST",
     headers: {

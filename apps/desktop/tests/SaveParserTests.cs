@@ -1,6 +1,6 @@
 using System.IO.Compression;
 using System.Text;
-using Vic3Unofficial.Twitch.Desktop.Services;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Services;
 
 namespace Vic3Unofficial.Twitch.Desktop.Parsing.Tests;
 
@@ -34,6 +34,16 @@ public sealed class SaveParserTests
         var (_, countries) = new SaveParser().ParseForSnapshot(file.Path);
 
         Assert.Contains(countries, country => country.Tag == "GBR" && country.Gdp == 24298716.4524);
+    }
+
+    [Fact]
+    public void StopsAfterRequiredSections()
+    {
+        using var file = TestSaveFile.CreateText(GameStateText + ExtraCountryAfterRequiredSections);
+
+        var (_, countries) = new SaveParser().ParseForSnapshot(file.Path);
+
+        Assert.DoesNotContain(countries, country => country.Tag == "AAA");
     }
 
     [Fact]
@@ -128,6 +138,32 @@ country_rankings={
 			prestige=5
 			score=120
 			country=0
+		} }
+}
+""";
+
+    private const string ExtraCountryAfterRequiredSections = """
+country_manager={
+	database={
+5={
+	is_main_tag=yes
+	definition="AAA"
+	capital=1
+	gdp={
+		channels={
+0={
+				values={ 999999999 }
+			}		}
+	}
+}
+	}
+}
+country_rankings={
+	country_rankings={ {
+			rank=great_power
+			prestige=999
+			score=0
+			country=5
 		} }
 }
 """;

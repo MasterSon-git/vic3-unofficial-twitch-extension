@@ -1,5 +1,4 @@
 import type { Bindings } from '../types'
-import { removeActiveChannel } from './activeSessions'
 import { pairingTtlSeconds } from './lifetimes'
 
 type PairStatus = {
@@ -13,7 +12,6 @@ type ValidateTokenResponse = {
 
 type RevokeTokenResponse = {
   revoked: boolean
-  channelId?: string
 }
 
 function pairingState(env: Bindings) {
@@ -45,13 +43,9 @@ export async function validateIngestToken(env: Bindings, token: string) {
 
 export async function revokeChannelPairing(env: Bindings, channelId: string) {
   await stateRequest(env, '/revoke-channel', { channelId })
-  await removeActiveChannel(env, channelId)
 }
 
 export async function revokeTokenPairing(env: Bindings, token: string) {
   const response = await stateRequest<RevokeTokenResponse>(env, '/revoke-token', { token })
-  if (!response.revoked) return false
-
-  if (response.channelId) await removeActiveChannel(env, response.channelId)
-  return true
+  return response.revoked
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Vic3Unofficial.Twitch.Desktop.Extensions;
 using Vic3Unofficial.Twitch.Desktop.Infrastructure;
 using Vic3Unofficial.Twitch.Desktop.Models;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Models;
 using ApiException = Vic3Unofficial.Twitch.Desktop.Generated.ApiException;
 using ApiCountry = Vic3Unofficial.Twitch.Desktop.Generated.Country;
 using ApiEbsClient = Vic3Unofficial.Twitch.Desktop.Generated.EbsApiClient;
@@ -147,121 +149,75 @@ public sealed class EbsClient : IEbsClient
         _status.Post(StatusLevel.Info, serverRevoked ? "Unpaired" : "Local pairing removed");
     }
 
-    public async Task IngestAsync(Snapshot snapshot)
+    public async Task IngestAsync(string saveHash, int seq, IReadOnlyCollection<Country> countries)
     {
         EnsurePaired();
 
         try
         {
-            await _api.IngestSnapshotAsync(IngestToken!, ToApiSnapshot(snapshot));
+            await _api.IngestSnapshotAsync(IngestToken!, ToApiSnapshot(ChannelId!, saveHash, seq, countries));
         }
         catch (ApiException ex)
         {
             var responseText = ex.Response ?? "";
-            await HandleAuthFailures(ex.StatusCode);
+            var workerError = WorkerError.FromResponse(responseText);
+            if ((HttpStatusCode)ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                await HandleAuthFailures(ex.StatusCode);
+                throw new IngestPairingInvalidException();
+            }
+
             if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.Conflict &&
-                TryReadStaleSequence(responseText, out var lastSeq))
+                workerError.Is("stale_sequence") &&
+                workerError.LastSeq.HasValue)
             {
-                throw new IngestStaleSequenceException(lastSeq);
+                throw new IngestStaleSequenceException(workerError.LastSeq.Value);
+            }
+
+            if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.Conflict &&
+                workerError.Is("needs_new_autosave"))
+            {
+                throw new IngestDuplicateSaveException();
             }
 
             if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.BadGateway &&
-                TryReadPubSubRejected(responseText, out var upstreamStatus))
+                workerError.Is("pubsub_rejected"))
             {
-                throw new IngestPubSubRejectedException(upstreamStatus);
+                throw new IngestPubSubRejectedException(workerError.UpstreamStatus);
             }
 
             if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.BadGateway &&
-                HasErrorCode(responseText, "pubsub_failed"))
+                workerError.Is("pubsub_failed"))
             {
                 throw new IngestPubSubFailedException();
             }
 
             if ((HttpStatusCode)ex.StatusCode == (HttpStatusCode)429)
             {
-                if (TryReadTooSoonRetry(responseText, out var retryAfter))
+                if (workerError.Is("too_soon"))
                 {
+                    var retryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, workerError.RetryInMs ?? 300000));
                     _status.Post(StatusLevel.Warning, $"Worker rate limit reached. Next ingest in {retryAfter.TotalSeconds:N0} seconds.");
                     throw new IngestRateLimitedException(retryAfter);
                 }
 
                 HasActiveSlot = false;
                 _status.Post(StatusLevel.Warning, "No active backend slot is currently available. Ingest paused.");
+                throw new IngestActiveSlotUnavailableException();
             }
-            throw new Exception($"ingest failed: {ex.StatusCode} {responseText}", ex);
-        }
-    }
 
-    private static bool TryReadStaleSequence(string responseText, out int lastSeq)
-    {
-        lastSeq = -1;
-        if (string.IsNullOrWhiteSpace(responseText)) return false;
-
-        try
-        {
-            using var document = JsonDocument.Parse(responseText);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("error", out var error) ||
-                error.ValueKind != JsonValueKind.String ||
-                error.GetString() != "stale_sequence")
+            if (ex.StatusCode == 413 ||
+                workerError.Is("payload_too_large"))
             {
-                return false;
+                throw new IngestPermanentException("Snapshot is too large for Twitch PubSub. Reduce the snapshot country limit.");
             }
 
-            return root.TryGetProperty("lastSeq", out var lastSeqElement) &&
-                   lastSeqElement.TryGetInt32(out lastSeq);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static bool TryReadPubSubRejected(string responseText, out int? upstreamStatus)
-    {
-        upstreamStatus = null;
-        if (string.IsNullOrWhiteSpace(responseText)) return false;
-
-        try
-        {
-            using var document = JsonDocument.Parse(responseText);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("error", out var error) ||
-                error.ValueKind != JsonValueKind.String ||
-                error.GetString() != "pubsub_rejected")
+            if (ex.StatusCode >= 500)
             {
-                return false;
+                throw new IngestTransientException($"Worker ingest failed temporarily: {ex.StatusCode}.", ex);
             }
 
-            if (root.TryGetProperty("upstreamStatus", out var upstreamStatusElement) &&
-                upstreamStatusElement.TryGetInt32(out var parsed))
-            {
-                upstreamStatus = parsed;
-            }
-
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static bool HasErrorCode(string responseText, string expectedErrorCode)
-    {
-        if (string.IsNullOrWhiteSpace(responseText)) return false;
-
-        try
-        {
-            using var document = JsonDocument.Parse(responseText);
-            var root = document.RootElement;
-            return root.TryGetProperty("error", out var error) &&
-                   error.ValueKind == JsonValueKind.String &&
-                   error.GetString() == expectedErrorCode;
-        }
-        catch (JsonException)
-        {
-            return false;
+            throw new IngestPermanentException($"Worker rejected ingest: {ex.StatusCode} {responseText}");
         }
     }
 
@@ -271,17 +227,17 @@ public sealed class EbsClient : IEbsClient
             throw new InvalidOperationException("Client is not paired.");
     }
 
-    private static ApiSnapshot ToApiSnapshot(Snapshot snapshot)
+    private static ApiSnapshot ToApiSnapshot(string channelId, string saveHash, int seq, IReadOnlyCollection<Country> countries)
     {
         var apiSnapshot = new ApiSnapshot
         {
-            ChannelId = snapshot.ChannelId,
-            SaveHash = snapshot.SaveHash,
-            Seq = snapshot.Seq,
-            UpdatedAt = DateTimeOffset.TryParse(snapshot.UpdatedAt, out var updatedAt) ? updatedAt : null
+            ChannelId = channelId,
+            SaveHash = saveHash,
+            Seq = seq,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
 
-        foreach (var country in snapshot.Countries)
+        foreach (var country in countries)
         {
             apiSnapshot.Countries.Add(new ApiCountry
             {
@@ -311,32 +267,41 @@ public sealed class EbsClient : IEbsClient
         return Task.CompletedTask;
     }
 
-    private static bool TryReadTooSoonRetry(string responseText, out TimeSpan retryAfter)
+    private sealed record WorkerError(string? Error, int? LastSeq, int? RetryInMs, int? UpstreamStatus)
     {
-        retryAfter = TimeSpan.Zero;
-        if (string.IsNullOrWhiteSpace(responseText)) return false;
+        private static readonly WorkerError Empty = new(null, null, null, null);
 
-        try
+        public bool Is(string errorCode) => string.Equals(Error, errorCode, StringComparison.Ordinal);
+
+        public static WorkerError FromResponse(string responseText)
         {
-            using var document = JsonDocument.Parse(responseText);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("error", out var error) ||
-                error.ValueKind != JsonValueKind.String ||
-                error.GetString() != "too_soon")
+            if (string.IsNullOrWhiteSpace(responseText)) return Empty;
+
+            try
             {
-                return false;
-            }
+                using var document = JsonDocument.Parse(responseText);
+                var root = document.RootElement;
+                if (!root.TryGetProperty("error", out var error) ||
+                    error.ValueKind != JsonValueKind.String)
+                {
+                    return Empty;
+                }
 
-            var retryInMs = root.TryGetProperty("retryInMs", out var retryElement) &&
-                            retryElement.TryGetInt32(out var parsed)
-                ? parsed
-                : 300000;
-            retryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, retryInMs));
-            return true;
+                return new WorkerError(
+                    error.GetString(),
+                    TryGetInt(root, "lastSeq"),
+                    TryGetInt(root, "retryInMs"),
+                    TryGetInt(root, "upstreamStatus"));
+            }
+            catch (JsonException)
+            {
+                return Empty;
+            }
         }
-        catch (JsonException)
-        {
-            return false;
-        }
+
+        private static int? TryGetInt(JsonElement root, string propertyName) =>
+            root.TryGetProperty(propertyName, out var element) && element.TryGetInt32(out var value)
+                ? value
+                : null;
     }
 }

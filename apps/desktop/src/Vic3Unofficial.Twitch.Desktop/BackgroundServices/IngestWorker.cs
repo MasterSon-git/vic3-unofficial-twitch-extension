@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,6 +8,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Vic3Unofficial.Twitch.Desktop.Infrastructure;
 using Vic3Unofficial.Twitch.Desktop.Models;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Models;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Services;
 using Vic3Unofficial.Twitch.Desktop.Services;
 
 namespace Vic3Unofficial.Twitch.Desktop.BackgroundServices;
@@ -195,14 +198,7 @@ public sealed class IngestWorker : BackgroundService
                 StatusLevel.Info,
                 $"Parsed {countries.Count} countries, sending {snapshotCountries.Count}.");
 
-            var snap = new Snapshot
-            {
-                ChannelId = _ebs.ChannelId!,
-                SaveHash = saveHash,
-                Countries = snapshotCountries
-            };
-
-            return await SendSnapshotAsync(snap, ct);
+            return await SendSnapshotAsync(saveHash, snapshotCountries, ct);
         }
         catch (IngestRateLimitedException ex)
         {
@@ -210,10 +206,28 @@ public sealed class IngestWorker : BackgroundService
             await Task.Delay(ex.RetryAfter, ct);
             return false;
         }
-        catch (IngestStaleSequenceException ex)
+        catch (IngestPairingInvalidException)
         {
-            _seq = Math.Max(_seq, ex.LastSeq);
-            _status.Post(StatusLevel.Info, $"Ingest sequence synchronized with Worker at {ex.LastSeq}.");
+            _uploadControl.IsWatching = false;
+            _status.Post(StatusLevel.Warning, "Pairing expired or revoked. Pair again from the Twitch config view.");
+            return false;
+        }
+        catch (IngestActiveSlotUnavailableException)
+        {
+            _uploadControl.IsWatching = false;
+            _status.Post(StatusLevel.Warning, "No active backend slot is currently available. Uploads paused.");
+            return false;
+        }
+        catch (IngestPermanentException ex)
+        {
+            _uploadControl.IsWatching = false;
+            _status.Post(StatusLevel.Error, ex.Message);
+            return false;
+        }
+        catch (InvalidDataException ex)
+        {
+            _uploadControl.IsWatching = false;
+            _status.Post(StatusLevel.Error, ex.Message);
             return false;
         }
         catch (Exception ex)
@@ -225,17 +239,17 @@ public sealed class IngestWorker : BackgroundService
         }
     }
 
-    private async Task<bool> SendSnapshotAsync(Snapshot snap, CancellationToken ct)
+    private async Task<bool> SendSnapshotAsync(string saveHash, IReadOnlyCollection<Country> countries, CancellationToken ct)
     {
         for (var attempts = 0; attempts < 3; attempts++)
         {
             try
             {
-                snap.Seq = ++_seq;
-                _status.Post(StatusLevel.Info, $"Ingest seq={_seq} save={snap.SaveHash}");
-                await _ebs.IngestAsync(snap);
+                var seq = ++_seq;
+                _status.Post(StatusLevel.Info, $"Ingest seq={seq} save={saveHash}");
+                await _ebs.IngestAsync(saveHash, seq, countries);
                 _lastAccepted = DateTimeOffset.UtcNow;
-                _lastSaveHash = snap.SaveHash;
+                _lastSaveHash = saveHash;
                 _status.Post(StatusLevel.Info, $"Ingest OK (next >= {_lastAccepted.AddMilliseconds(_settings.IngestIntervalMs):HH:mm:ss} UTC)");
                 return true;
             }
@@ -257,6 +271,17 @@ public sealed class IngestWorker : BackgroundService
                     StatusLevel.Error,
                     $"Worker PubSub publishing is rejected by Twitch.{upstreamStatus} Check the Twitch Extension and Worker configuration before restarting uploads.");
                 return false;
+            }
+            catch (IngestDuplicateSaveException)
+            {
+                _lastSaveHash = saveHash;
+                _status.Post(StatusLevel.Info, "Worker already has this save. Waiting for the next save.");
+                return true;
+            }
+            catch (IngestTransientException ex)
+            {
+                _status.Post(StatusLevel.Warning, $"{ex.Message} Retrying shortly.");
+                await Task.Delay(TimeSpan.FromSeconds(10), ct);
             }
         }
 

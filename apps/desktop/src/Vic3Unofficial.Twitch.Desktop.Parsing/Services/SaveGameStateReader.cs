@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.IO.Compression;
 
-namespace Vic3Unofficial.Twitch.Desktop.Services;
+namespace Vic3Unofficial.Twitch.Desktop.Parsing.Services;
 
 internal static class SaveGameStateReader
 {

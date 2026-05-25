@@ -1,4 +1,4 @@
-namespace Vic3Unofficial.Twitch.Desktop.Models;
+namespace Vic3Unofficial.Twitch.Desktop.Parsing.Models;
 
 public sealed class Country
 {

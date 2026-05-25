@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Vic3Unofficial.Twitch.Desktop.BackgroundServices;
 using Vic3Unofficial.Twitch.Desktop.Infrastructure;
+using Vic3Unofficial.Twitch.Desktop.Parsing.Services;
 using Vic3Unofficial.Twitch.Desktop.Services;
 using Vic3Unofficial.Twitch.Desktop.ViewModels;
 using Vic3Unofficial.Twitch.Desktop.Views;
@@ -51,6 +52,7 @@ public partial class App : Application
                 services.AddSingleton<IStatusSink, StatusHub>();
                 services.AddSingleton<ITokenStore, TokenStore>();
                 services.AddSingleton<IUploadControl, UploadControl>();
+                services.AddSingleton<IDialogService, DialogService>();
                 services.AddSingleton(StartupDiagnostics);
 
                 // Settings
@@ -65,7 +67,7 @@ public partial class App : Application
                     sp.GetRequiredService<ILogger<EbsClient>>(),
                     sp.GetRequiredService<IStatusSink>()));
 
-                // Domain Services
+                // Application services
                 services.AddSingleton<ISaveFileWatcher, SaveFileWatcher>();
                 services.AddSingleton<ISaveParser, SaveParser>();
 
