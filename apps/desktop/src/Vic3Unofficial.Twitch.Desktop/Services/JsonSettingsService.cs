@@ -1,7 +1,9 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows;
 
 namespace Vic3Unofficial.Twitch.Desktop.Services;
 
@@ -18,6 +20,7 @@ public sealed class JsonSettingsService : ISettingsService
         public string? AutosaveDir { get; set; }
         public int IngestIntervalMs { get; set; } = 300000; // 5min
         public int SnapshotCountryLimit { get; set; } = 30;
+        public double StreamAspectRatio { get; set; } = GetPrimaryMonitorAspectRatio();
     }
 
     private readonly string _settingsPath;
@@ -38,6 +41,18 @@ public sealed class JsonSettingsService : ISettingsService
     public string WorkerBaseUrl { get => _m.WorkerBaseUrl; set { _m.WorkerBaseUrl = value; Save(); } }
     public string SaveDir { get => _m.SaveDir; set { _m.SaveDir = value; Save(); } }
     public int IngestIntervalMs { get => _m.IngestIntervalMs; set { _m.IngestIntervalMs = value; Save(); } }
+    public double StreamAspectRatio
+    {
+        get => ClampStreamAspectRatio(_m.StreamAspectRatio);
+        set
+        {
+            _m.StreamAspectRatio = ClampStreamAspectRatio(value);
+            Save();
+        }
+    }
+
+    public double SuggestedStreamAspectRatio => GetPrimaryMonitorAspectRatio();
+
     public int SnapshotCountryLimit
     {
         get => Math.Clamp(_m.SnapshotCountryLimit, 1, 300);
@@ -50,25 +65,20 @@ public sealed class JsonSettingsService : ISettingsService
 
     public string GetConfiguredSaveFileFormat()
     {
-        if (!File.Exists(_victoriaSettingsPath)) return "zip_binary_all";
+        using var document = TryOpenVictoriaSettings();
+        if (document is null) return "zip_binary_all";
 
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllText(_victoriaSettingsPath));
-            if (document.RootElement.TryGetProperty("game", out var game) &&
-                game.TryGetProperty("save_file_format", out var format) &&
-                format.ValueKind == JsonValueKind.String &&
-                !string.IsNullOrWhiteSpace(format.GetString()))
-            {
-                return format.GetString()!;
-            }
-        }
-        catch
-        {
-            return "zip_binary_all";
-        }
+        return TryGetString(document.RootElement, "game", "save_file_format") ?? "zip_binary_all";
+    }
 
-        return "zip_binary_all";
+    public VictoriaUiSettings GetVictoriaUiSettings()
+    {
+        using var document = TryOpenVictoriaSettings();
+        if (document is null) return new VictoriaUiSettings(null, null, StreamAspectRatio);
+
+        var guiScale = TryGetDouble(document.RootElement, "GUI", "scale");
+        var skinTheme = TryGetString(document.RootElement, "Theme", "selected_ui_skin_theme");
+        return new VictoriaUiSettings(guiScale, skinTheme, StreamAspectRatio);
     }
 
     private Model LoadInternal()
@@ -94,5 +104,66 @@ public sealed class JsonSettingsService : ISettingsService
     {
         var json = JsonSerializer.Serialize(_m, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(_settingsPath, json);
+    }
+
+    private static double ClampStreamAspectRatio(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 1.0, 4.0) : GetPrimaryMonitorAspectRatio();
+
+    private static double GetPrimaryMonitorAspectRatio()
+    {
+        var width = SystemParameters.PrimaryScreenWidth;
+        var height = SystemParameters.PrimaryScreenHeight;
+        if (width <= 0 || height <= 0) return 16.0 / 9.0;
+        return ClampAspectRatioWithoutFallback(width / height);
+    }
+
+    private static double ClampAspectRatioWithoutFallback(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 1.0, 4.0) : 16.0 / 9.0;
+
+    private JsonDocument? TryOpenVictoriaSettings()
+    {
+        if (!File.Exists(_victoriaSettingsPath)) return null;
+
+        try
+        {
+            return JsonDocument.Parse(File.ReadAllText(_victoriaSettingsPath));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? TryGetString(JsonElement root, string sectionName, string propertyName)
+    {
+        if (root.TryGetProperty(sectionName, out var section) &&
+            section.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(property.GetString()))
+        {
+            return property.GetString();
+        }
+
+        return null;
+    }
+
+    private static double? TryGetDouble(JsonElement root, string sectionName, string propertyName)
+    {
+        if (!root.TryGetProperty(sectionName, out var section) ||
+            !section.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.Number when property.TryGetDouble(out var value) => value,
+            JsonValueKind.String when double.TryParse(
+                property.GetString(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var value) => value,
+            _ => null
+        };
     }
 }

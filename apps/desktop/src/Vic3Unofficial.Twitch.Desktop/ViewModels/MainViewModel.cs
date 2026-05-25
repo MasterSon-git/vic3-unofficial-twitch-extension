@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -12,6 +14,8 @@ using Vic3Unofficial.Twitch.Desktop.Services;
 
 namespace Vic3Unofficial.Twitch.Desktop.ViewModels;
 
+public sealed record StreamAspectRatioOption(string Label, double Value);
+
 public partial class MainViewModel : ObservableObject
 {
     private readonly ISettingsService _settings;
@@ -21,10 +25,12 @@ public partial class MainViewModel : ObservableObject
     private readonly IDialogService _dialogs;
 
     public ReadOnlyObservableCollection<StatusItem> StatusEntries { get; }
+    public IReadOnlyList<StreamAspectRatioOption> StreamAspectRatioOptions { get; }
 
     [ObservableProperty] private string _saveDir;
     [ObservableProperty] private bool _isWatching;
     [ObservableProperty] private string _saveFileFormat = "unknown";
+    [ObservableProperty] private double _streamAspectRatio;
 
     public bool IsPaired => !string.IsNullOrEmpty(_ebs.IngestToken);
     public bool HasActiveSlot => _ebs.HasActiveSlot;
@@ -55,6 +61,7 @@ public partial class MainViewModel : ObservableObject
     public string SaveFormatStatusText => IsSaveFormatSupported
         ? $"Victoria 3 save format: {SaveFileFormat}"
         : $"Unsupported save format: {SaveFileFormat}";
+    public string StreamAspectRatioStatusText => $"Stream aspect ratio: {FormatAspectRatio(StreamAspectRatio)}";
 
     public string WatchingButtonText => IsWatching ? "Stop uploads" : "Start uploads";
     public string UploadStatusText => IsWatching ? "Watching saves" : "Uploads paused";
@@ -71,7 +78,9 @@ public partial class MainViewModel : ObservableObject
         _uploadControl = uploadControl;
         _status = statusSink;
         _dialogs = dialogs;
+        StreamAspectRatioOptions = BuildStreamAspectRatioOptions(settings.SuggestedStreamAspectRatio, settings.StreamAspectRatio);
         _saveDir = settings.SaveDir;
+        _streamAspectRatio = settings.StreamAspectRatio;
         StatusEntries = statusSink.Events;
         SaveFileFormat = settings.GetConfiguredSaveFileFormat();
 
@@ -99,6 +108,12 @@ public partial class MainViewModel : ObservableObject
     partial void OnIsWatchingChanged(bool value) => RefreshComputedState();
 
     partial void OnSaveFileFormatChanged(string value) => RefreshComputedState();
+
+    partial void OnStreamAspectRatioChanged(double value)
+    {
+        _settings.StreamAspectRatio = value;
+        RefreshComputedState();
+    }
 
     [RelayCommand(CanExecute = nameof(CanToggleWatching))]
     private void ToggleWatching()
@@ -144,6 +159,7 @@ public partial class MainViewModel : ObservableObject
     private void RefreshSettings()
     {
         SaveFileFormat = _settings.GetConfiguredSaveFileFormat();
+        StreamAspectRatio = _settings.StreamAspectRatio;
         RefreshComputedState();
     }
 
@@ -195,6 +211,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ConnectionDetailText));
         OnPropertyChanged(nameof(SaveFolderStatusText));
         OnPropertyChanged(nameof(SaveFormatStatusText));
+        OnPropertyChanged(nameof(StreamAspectRatioStatusText));
         OnPropertyChanged(nameof(WatchingButtonText));
         OnPropertyChanged(nameof(UploadStatusText));
         ToggleWatchingCommand.NotifyCanExecuteChanged();
@@ -204,4 +221,34 @@ public partial class MainViewModel : ObservableObject
     private static bool IsSupportedSaveFileFormat(string saveFileFormat) =>
         string.Equals(saveFileFormat, "zip_text_all", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(saveFileFormat, "text", StringComparison.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<StreamAspectRatioOption> BuildStreamAspectRatioOptions(double suggested, double current)
+    {
+        var options = new List<StreamAspectRatioOption>
+        {
+            new($"Primary monitor ({FormatAspectRatio(suggested)})", suggested),
+        };
+
+        AddIfMissing(options, "16:9", 16.0 / 9.0);
+        AddIfMissing(options, "16:10", 16.0 / 10.0);
+        AddIfMissing(options, "21:9", 21.0 / 9.0);
+        AddIfMissing(options, "32:9", 32.0 / 9.0);
+        AddIfMissing(options, $"Current custom ({FormatAspectRatio(current)})", current);
+        return options;
+    }
+
+    private static void AddIfMissing(List<StreamAspectRatioOption> options, string label, double value)
+    {
+        if (options.Any(option => Math.Abs(option.Value - value) < 0.001)) return;
+        options.Add(new StreamAspectRatioOption(label, value));
+    }
+
+    private static string FormatAspectRatio(double value)
+    {
+        if (Math.Abs(value - 16.0 / 9.0) < 0.001) return "16:9";
+        if (Math.Abs(value - 16.0 / 10.0) < 0.001) return "16:10";
+        if (Math.Abs(value - 21.0 / 9.0) < 0.001) return "21:9";
+        if (Math.Abs(value - 32.0 / 9.0) < 0.001) return "32:9";
+        return $"{value:0.###}:1";
+    }
 }

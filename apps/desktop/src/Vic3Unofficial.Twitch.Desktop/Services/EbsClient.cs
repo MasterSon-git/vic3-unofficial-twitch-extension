@@ -15,6 +15,7 @@ using ApiEbsClient = Vic3Unofficial.Twitch.Desktop.Generated.EbsApiClient;
 using ApiPairCompleteRequest = Vic3Unofficial.Twitch.Desktop.Generated.PairCompleteRequest;
 using ApiPairCompleteResponse = Vic3Unofficial.Twitch.Desktop.Generated.PairCompleteResponse;
 using ApiSnapshot = Vic3Unofficial.Twitch.Desktop.Generated.Snapshot;
+using ApiSnapshotUi = Vic3Unofficial.Twitch.Desktop.Generated.SnapshotUi;
 
 namespace Vic3Unofficial.Twitch.Desktop.Services;
 
@@ -227,14 +228,16 @@ public sealed class EbsClient : IEbsClient
             throw new InvalidOperationException("Client is not paired.");
     }
 
-    private static ApiSnapshot ToApiSnapshot(string channelId, string saveHash, int seq, IReadOnlyCollection<Country> countries)
+    private ApiSnapshot ToApiSnapshot(string channelId, string saveHash, int seq, IReadOnlyCollection<Country> countries)
     {
+        var uiSettings = _settings.GetVictoriaUiSettings();
         var apiSnapshot = new ApiSnapshot
         {
             ChannelId = channelId,
             SaveHash = saveHash,
             Seq = seq,
-            UpdatedAt = DateTimeOffset.UtcNow
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Ui = ToApiSnapshotUi(uiSettings)
         };
 
         foreach (var country in countries)
@@ -252,6 +255,16 @@ public sealed class EbsClient : IEbsClient
         }
 
         return apiSnapshot;
+    }
+
+    private static ApiSnapshotUi? ToApiSnapshotUi(VictoriaUiSettings settings)
+    {
+        return new ApiSnapshotUi
+        {
+            GuiScale = settings.GuiScale,
+            SkinTheme = string.IsNullOrWhiteSpace(settings.SkinTheme) ? null : settings.SkinTheme,
+            StreamAspectRatio = settings.StreamAspectRatio
+        };
     }
 
     private Task HandleAuthFailures(int statusCode)

@@ -5,6 +5,11 @@ export const fixtureSnapshot: Snapshot = {
   saveHash: 'fixture-1836-01-02',
   seq: 1,
   updatedAt: new Date().toISOString(),
+  ui: {
+    guiScale: 1.3,
+    skinTheme: 'gui_skin_base',
+    streamAspectRatio: 1.6,
+  },
   countries: [
     { tag: 'GBR', score: 1, rank: 'great_power', prestige: 544, gdp: 24298716, treasury: 1207668, marketId: '0' },
     { tag: 'FRA', score: 2, rank: 'great_power', prestige: 405, gdp: 27300000, treasury: 1016893, marketId: '2' },

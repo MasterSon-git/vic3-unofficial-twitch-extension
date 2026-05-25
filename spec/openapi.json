@@ -154,6 +154,9 @@
             },
             "maxItems": 300
           },
+          "ui": {
+            "$ref": "#/components/schemas/SnapshotUi"
+          },
           "updatedAt": {
             "type": "string",
             "description": "UTC timestamp for the snapshot when available.",
@@ -167,6 +170,32 @@
           "seq",
           "countries"
         ],
+        "additionalProperties": false
+      },
+      "SnapshotUi": {
+        "type": "object",
+        "description": "Victoria 3 UI settings that affect overlay placement and visual style. Values come from pdx_settings.json on the streamer's machine.",
+        "properties": {
+          "guiScale": {
+            "type": "number",
+            "description": "Victoria 3 GUI scaling factor from GUI.scale, for example 1.3 for 130%.",
+            "minimum": 0.5,
+            "maximum": 3,
+            "example": 1.3
+          },
+          "skinTheme": {
+            "type": "string",
+            "description": "Victoria 3 selected UI skin theme from Theme.selected_ui_skin_theme when available.",
+            "example": "gui_skin_base"
+          },
+          "streamAspectRatio": {
+            "type": "number",
+            "description": "Visible stream content aspect ratio as width divided by height, after OBS/capture scaling. Examples: 1.7778 for 16:9, 1.6 for 16:10, 2.3333 for 21:9.",
+            "minimum": 1,
+            "maximum": 4,
+            "example": 1.6
+          }
+        },
         "additionalProperties": false
       },
       "PairInitRequest": {
@@ -525,6 +554,11 @@
               "marketId": "british_market"
             }
           ],
+          "ui": {
+            "guiScale": 1.3,
+            "skinTheme": "gui_skin_base",
+            "streamAspectRatio": 1.6
+          },
           "updatedAt": "2025-10-31T12:00:00Z"
         }
       },
@@ -547,6 +581,11 @@
                 "marketId": "british_market"
               }
             ],
+            "ui": {
+              "guiScale": 1.3,
+              "skinTheme": "gui_skin_base",
+              "streamAspectRatio": 1.6
+            },
             "updatedAt": "2025-10-31T12:00:00Z"
           }
         }
