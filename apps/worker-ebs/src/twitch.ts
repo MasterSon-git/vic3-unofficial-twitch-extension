@@ -1,6 +1,19 @@
 import { SignJWT } from "jose";
 import type { Env } from "./types";
 
+export class PubSubBroadcastError extends Error {
+  constructor(
+    public readonly kind: "transient" | "rejected",
+    public readonly upstreamStatus?: number
+  ) {
+    super(
+      upstreamStatus
+        ? `pubsub_${kind}:${upstreamStatus}`
+        : `pubsub_${kind}`
+    );
+  }
+}
+
 /** Build EBS JWT for Extensions PubSub (role=external). */
 export async function buildEbsJwt(
   env: Env,
@@ -23,8 +36,15 @@ export async function buildEbsJwt(
     .sign(secret);
 }
 
-/** Send a broadcast message to all viewers in a channel. Message must be a string ≤ 5 KB. */
-export async function sendPubSubBroadcast(env: Env, channelId: string, message: string) {
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+async function sendPubSubBroadcastOnce(env: Env, channelId: string, message: string) {
   const jwt = await buildEbsJwt(env, channelId);
   const res = await fetch("https://api.twitch.tv/helix/extensions/pubsub", {
     method: "POST",
@@ -39,7 +59,32 @@ export async function sendPubSubBroadcast(env: Env, channelId: string, message: 
       message
     })
   });
-  if (!res.ok) {
-    throw new Error(`pubsub_failed:${res.status}`);
+
+  if (res.ok) return;
+
+  throw new PubSubBroadcastError(
+    isRetryableStatus(res.status) ? "transient" : "rejected",
+    res.status
+  );
+}
+
+/** Send a broadcast message to all viewers in a channel. Message must be a string ≤ 5 KB. */
+export async function sendPubSubBroadcast(env: Env, channelId: string, message: string) {
+  const backoffMs = [250, 750];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= backoffMs.length; attempt += 1) {
+    try {
+      await sendPubSubBroadcastOnce(env, channelId, message);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof PubSubBroadcastError && error.kind === "rejected") throw error;
+      if (attempt === backoffMs.length) break;
+      await delay(backoffMs[attempt]);
+    }
   }
+
+  if (lastError instanceof PubSubBroadcastError) throw lastError;
+  throw new PubSubBroadcastError("transient");
 }

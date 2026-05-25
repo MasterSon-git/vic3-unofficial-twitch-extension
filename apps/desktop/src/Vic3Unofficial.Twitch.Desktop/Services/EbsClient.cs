@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Vic3Unofficial.Twitch.Desktop.Extensions;
@@ -27,6 +28,7 @@ public sealed class EbsClient : IEbsClient
     {
         http.Timeout = TimeSpan.FromSeconds(30);
         _api = new ApiEbsClient(http);
+        _api.ReadResponseAsString = true;
         _settings = settings;
         _api.BaseUrl = BaseUrl;
         _tokenStore = tokenStore;
@@ -157,12 +159,109 @@ public sealed class EbsClient : IEbsClient
         {
             var responseText = ex.Response ?? "";
             await HandleAuthFailures(ex.StatusCode);
+            if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.Conflict &&
+                TryReadStaleSequence(responseText, out var lastSeq))
+            {
+                throw new IngestStaleSequenceException(lastSeq);
+            }
+
+            if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.BadGateway &&
+                TryReadPubSubRejected(responseText, out var upstreamStatus))
+            {
+                throw new IngestPubSubRejectedException(upstreamStatus);
+            }
+
+            if ((HttpStatusCode)ex.StatusCode == HttpStatusCode.BadGateway &&
+                HasErrorCode(responseText, "pubsub_failed"))
+            {
+                throw new IngestPubSubFailedException();
+            }
+
             if ((HttpStatusCode)ex.StatusCode == (HttpStatusCode)429)
             {
+                if (TryReadTooSoonRetry(responseText, out var retryAfter))
+                {
+                    _status.Post(StatusLevel.Warning, $"Worker rate limit reached. Next ingest in {retryAfter.TotalSeconds:N0} seconds.");
+                    throw new IngestRateLimitedException(retryAfter);
+                }
+
                 HasActiveSlot = false;
                 _status.Post(StatusLevel.Warning, "No active backend slot is currently available. Ingest paused.");
             }
             throw new Exception($"ingest failed: {ex.StatusCode} {responseText}", ex);
+        }
+    }
+
+    private static bool TryReadStaleSequence(string responseText, out int lastSeq)
+    {
+        lastSeq = -1;
+        if (string.IsNullOrWhiteSpace(responseText)) return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("error", out var error) ||
+                error.ValueKind != JsonValueKind.String ||
+                error.GetString() != "stale_sequence")
+            {
+                return false;
+            }
+
+            return root.TryGetProperty("lastSeq", out var lastSeqElement) &&
+                   lastSeqElement.TryGetInt32(out lastSeq);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadPubSubRejected(string responseText, out int? upstreamStatus)
+    {
+        upstreamStatus = null;
+        if (string.IsNullOrWhiteSpace(responseText)) return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("error", out var error) ||
+                error.ValueKind != JsonValueKind.String ||
+                error.GetString() != "pubsub_rejected")
+            {
+                return false;
+            }
+
+            if (root.TryGetProperty("upstreamStatus", out var upstreamStatusElement) &&
+                upstreamStatusElement.TryGetInt32(out var parsed))
+            {
+                upstreamStatus = parsed;
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasErrorCode(string responseText, string expectedErrorCode)
+    {
+        if (string.IsNullOrWhiteSpace(responseText)) return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var root = document.RootElement;
+            return root.TryGetProperty("error", out var error) &&
+                   error.ValueKind == JsonValueKind.String &&
+                   error.GetString() == expectedErrorCode;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -187,6 +286,9 @@ public sealed class EbsClient : IEbsClient
             apiSnapshot.Countries.Add(new ApiCountry
             {
                 Tag = country.Tag,
+                Score = country.Score,
+                Rank = country.Rank,
+                Prestige = country.Prestige,
                 Treasury = country.Treasury,
                 Gdp = country.Gdp,
                 MarketId = country.MarketId
@@ -207,5 +309,34 @@ public sealed class EbsClient : IEbsClient
             _status.Post(StatusLevel.Warning, "Pairing expired or revoked. Pair again from the Twitch config view.");
         }
         return Task.CompletedTask;
+    }
+
+    private static bool TryReadTooSoonRetry(string responseText, out TimeSpan retryAfter)
+    {
+        retryAfter = TimeSpan.Zero;
+        if (string.IsNullOrWhiteSpace(responseText)) return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("error", out var error) ||
+                error.ValueKind != JsonValueKind.String ||
+                error.GetString() != "too_soon")
+            {
+                return false;
+            }
+
+            var retryInMs = root.TryGetProperty("retryInMs", out var retryElement) &&
+                            retryElement.TryGetInt32(out var parsed)
+                ? parsed
+                : 300000;
+            retryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, retryInMs));
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }

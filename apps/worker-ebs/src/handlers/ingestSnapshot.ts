@@ -1,6 +1,6 @@
 import type { OperationHandler, RequestBodyJson, ResponseBody } from '../lib/types'
 import { json } from '../lib/responses'
-import { sendPubSubBroadcast } from '../twitch'
+import { PubSubBroadcastError, sendPubSubBroadcast } from '../twitch'
 import { admitActiveChannel } from '../lib/activeSessions'
 import { revokeChannelPairing, validateIngestToken } from '../lib/pairings'
 
@@ -61,15 +61,26 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
     )
   }
 
+  try {
+    await sendPubSubBroadcast(env, channelId, message)
+  } catch (error) {
+    if (error instanceof PubSubBroadcastError && error.kind === 'rejected') {
+      return json(
+        {
+          error: 'pubsub_rejected',
+          upstreamStatus: error.upstreamStatus,
+          hint: 'Twitch rejected the PubSub publish request. Check the Worker and Twitch Extension configuration.',
+        },
+        502
+      )
+    }
+
+    return json({ error: 'pubsub_failed' }, 502)
+  }
+
   await env.KV.put(metaKey, JSON.stringify({ ts: now, seq: snapshot.seq, saveHash: snapshot.saveHash }), {
     expirationTtl: 24 * 3600,
   })
-
-  try {
-    await sendPubSubBroadcast(env, channelId, message)
-  } catch {
-    return json({ error: 'pubsub_failed' }, 502)
-  }
 
   const response: ResponseBody<'ingestSnapshot', 200> = { status: 'ok' }
   return json(response)

@@ -17,6 +17,7 @@ namespace Vic3Unofficial.Twitch.Desktop;
 public partial class App : Application
 {
     public static LogLevel StartupLogLevel { get; set; } = LogLevel.Warning;
+    public static DesktopDiagnostics StartupDiagnostics { get; set; } = new();
     public static IHost Host { get; private set; } = null!;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -26,9 +27,10 @@ public partial class App : Application
 #else
         var parsedLogLevel = LogLevel.Warning;
 #endif
-        parsedLogLevel = ParseLogLevel(e.Args, parsedLogLevel);
+        var startupOptions = ParseStartupOptions(e.Args, parsedLogLevel);
 
-        StartupLogLevel = parsedLogLevel;
+        StartupLogLevel = startupOptions.LogLevel;
+        StartupDiagnostics = startupOptions.Diagnostics;
 
         base.OnStartup(e);
 
@@ -36,17 +38,10 @@ public partial class App : Application
             .CreateDefaultBuilder()
             .ConfigureLogging(lb =>
             {
+                lb.ClearProviders();
+                lb.AddProvider(new FileLoggerProvider(GetLogFilePath()));
 #if DEBUG
-                lb.ClearProviders();
                 lb.AddConsole();
-#else
-                lb.ClearProviders();
-                var logDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "Vic3UnofficialTwitch", "logs");
-                Directory.CreateDirectory(logDir);
-                var logFile = Path.Combine(logDir, "app.log");
-                lb.AddProvider(new FileLoggerProvider(logFile));
 #endif
                 lb.SetMinimumLevel(StartupLogLevel);
             })
@@ -55,6 +50,8 @@ public partial class App : Application
                 // Infrastructure
                 services.AddSingleton<IStatusSink, StatusHub>();
                 services.AddSingleton<ITokenStore, TokenStore>();
+                services.AddSingleton<IUploadControl, UploadControl>();
+                services.AddSingleton(StartupDiagnostics);
 
                 // Settings
                 services.AddSingleton<ISettingsService, JsonSettingsService>();
@@ -69,7 +66,7 @@ public partial class App : Application
                     sp.GetRequiredService<IStatusSink>()));
 
                 // Domain Services
-                services.AddSingleton<IAutosaveWatcher, AutosaveWatcher>();
+                services.AddSingleton<ISaveFileWatcher, SaveFileWatcher>();
                 services.AddSingleton<ISaveParser, SaveParser>();
 
                 // Background worker
@@ -85,27 +82,61 @@ public partial class App : Application
             })
             .Build();
 
+        Host.StartAsync().GetAwaiter().GetResult();
+        Host.Services.GetRequiredService<ILogger<App>>()
+            .LogInformation("Desktop app started. Log file: {LogFile}", GetLogFilePath());
+
         var main = Host.Services.GetRequiredService<MainWindow>();
         MainWindow = main;
         main.Show();
     }
 
-    private static LogLevel ParseLogLevel(string[] args, LogLevel fallback)
+    private static string GetLogFilePath()
+    {
+        var logDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Vic3UnofficialTwitch",
+            "logs");
+
+        Directory.CreateDirectory(logDir);
+        return Path.Combine(logDir, "app.log");
+    }
+
+    private sealed record StartupOptions(LogLevel LogLevel, DesktopDiagnostics Diagnostics);
+
+    private static StartupOptions ParseStartupOptions(string[] args, LogLevel fallbackLogLevel)
     {
         var logLevelOption = new Option<LogLevel>("--logLevel")
         {
             Description = "Specifies minimum log level (Trace, Debug, Information, Warning, Error, Critical)."
+        };
+        var fileWatcherDiagnosticsOption = new Option<bool>("--fileWatcherDiagnostics")
+        {
+            Description = "Shows detailed file watcher events in the activity log."
         };
         var root = new RootCommand("Vic3 Unofficial Twitch Desktop Uploader")
         {
             TreatUnmatchedTokensAsErrors = false
         };
         root.Add(logLevelOption);
+        root.Add(fileWatcherDiagnosticsOption);
 
         var parseResult = root.Parse(args);
-        if (parseResult.Errors.Count > 0 || parseResult.GetResult(logLevelOption) is null) return fallback;
+        if (parseResult.Errors.Count > 0)
+        {
+            return new StartupOptions(fallbackLogLevel, new DesktopDiagnostics());
+        }
 
-        return parseResult.GetValue(logLevelOption);
+        var logLevel = parseResult.GetResult(logLevelOption) is null
+            ? fallbackLogLevel
+            : parseResult.GetValue(logLevelOption);
+
+        return new StartupOptions(
+            logLevel,
+            new DesktopDiagnostics
+            {
+                FileWatcherDiagnostics = parseResult.GetValue(fileWatcherDiagnosticsOption)
+            });
     }
 
     protected override async void OnExit(ExitEventArgs e)

@@ -70,6 +70,7 @@ packages/
 !packages/repositories.config
 
 # Misc
+/.tmp/
 *.log
 *.tmp
 *.temp
@@ -82,6 +83,7 @@ public/flags/generated/
 !public/flags/README.md
 apps/worker-ebs/src/generated/
 apps/desktop/src/Generated/
+apps/desktop/src/Vic3Unofficial.Twitch.Desktop/Generated/
 
 # Local Test Scripts
 scripts/local-test*

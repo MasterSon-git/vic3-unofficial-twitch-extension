@@ -6,7 +6,7 @@ The desktop uploader sends game-state snapshots to the Worker. The Worker valida
 
 ## Apps
 - `apps/worker-ebs/` - Cloudflare Workers EBS: pairing, ingest validation, active streamer cap, Twitch PubSub broadcast.
-- `apps/desktop/` - Windows .NET 8 uploader: watches Victoria 3 autosaves, parses state, sends `/ingest`.
+- `apps/desktop/` - Windows uploader: watches Victoria 3 saves, parses state, sends `/ingest`.
 - `apps/extension-panel/` - Twitch-hosted config/panel files. Viewer UI receives state through Twitch Extension PubSub and uses bundled/static UI resources.
 
 ## API Contract
@@ -22,14 +22,14 @@ The desktop uploader sends game-state snapshots to the Worker. The Worker valida
 
 ## Quickstart
 
-Prereqs: Node.js, npm, Cloudflare Wrangler, .NET 8 SDK.
+Prereqs: Node.js, npm, Cloudflare Wrangler, .NET SDK.
 
 ```bash
 npm install
 dotnet tool restore
 
 npm run typecheck --workspace apps/worker-ebs
-dotnet build apps/desktop/src/Vic3Unofficial.Twitch.Desktop.csproj
+dotnet build apps/desktop/src/Vic3Unofficial.Twitch.Desktop/Vic3Unofficial.Twitch.Desktop.csproj
 ```
 
 Worker deployment:

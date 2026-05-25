@@ -13,16 +13,20 @@
   </ItemGroup>
 
   <Target Name="RestoreDotNetTools" BeforeTargets="GenerateEbsApiClient">
-    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../.." Command="dotnet tool restore" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../../.." Command="dotnet tool restore" />
   </Target>
 
   <Target Name="GenerateEbsApiClient" BeforeTargets="CoreCompile">
     <MakeDir Directories="$(MSBuildProjectDirectory)/Generated" />
-    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../.." Command="dotnet nswag openapi2csclient /input:spec/openapi.json /output:apps/desktop/src/Generated/EbsApiClient.g.cs /namespace:Vic3Unofficial.Twitch.Desktop.Generated /classname:EbsApiClient /operationGenerationMode:SingleClientFromOperationId /jsonLibrary:SystemTextJson /injectHttpClient:true /disposeHttpClient:false /generateClientInterfaces:false /generateOptionalPropertiesAsNullable:true /generateNullableReferenceTypes:true /generateJsonMethods:false /newLineBehavior:LF" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/../../../.." Command="dotnet nswag openapi2csclient /input:spec/openapi.json /output:apps/desktop/src/Vic3Unofficial.Twitch.Desktop/Generated/EbsApiClient.g.cs /namespace:Vic3Unofficial.Twitch.Desktop.Generated /classname:EbsApiClient /operationGenerationMode:SingleClientFromOperationId /jsonLibrary:SystemTextJson /injectHttpClient:true /disposeHttpClient:false /generateClientInterfaces:false /generateOptionalPropertiesAsNullable:true /generateNullableReferenceTypes:true /generateJsonMethods:false /newLineBehavior:LF" />
     <ItemGroup>
       <Compile Include="Generated/EbsApiClient.g.cs" />
     </ItemGroup>
   </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vic3Unofficial.Twitch.Desktop.Parsing\Vic3Unofficial.Twitch.Desktop.Parsing.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
