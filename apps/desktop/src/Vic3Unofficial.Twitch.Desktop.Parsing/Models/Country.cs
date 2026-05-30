@@ -8,5 +8,7 @@ public sealed class Country
     public double? Prestige { get; set; }
     public double? Treasury { get; set; }
     public double? Gdp { get; set; }
+    public double? Sol { get; set; }
+    public double? Population { get; set; }
     public string? MarketId { get; set; }
 }

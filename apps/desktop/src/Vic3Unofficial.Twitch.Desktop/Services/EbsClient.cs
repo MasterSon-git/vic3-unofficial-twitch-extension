@@ -156,7 +156,7 @@ public sealed class EbsClient : IEbsClient
 
         try
         {
-            await _api.IngestSnapshotAsync(IngestToken!, ToApiSnapshot(ChannelId!, saveHash, seq, countries));
+            await _api.IngestSnapshotAsync(IngestToken!, ToApiSnapshot(saveHash, seq, countries));
         }
         catch (ApiException ex)
         {
@@ -228,29 +228,30 @@ public sealed class EbsClient : IEbsClient
             throw new InvalidOperationException("Client is not paired.");
     }
 
-    private ApiSnapshot ToApiSnapshot(string channelId, string saveHash, int seq, IReadOnlyCollection<Country> countries)
+    private ApiSnapshot ToApiSnapshot(string saveHash, int seq, IReadOnlyCollection<Country> countries)
     {
         var uiSettings = _settings.GetVictoriaUiSettings();
         var apiSnapshot = new ApiSnapshot
         {
-            ChannelId = channelId,
-            SaveHash = saveHash,
-            Seq = seq,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            Ui = ToApiSnapshotUi(uiSettings)
+            H = saveHash,
+            Q = seq,
+            D = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            U = ToApiSnapshotUi(uiSettings)
         };
 
         foreach (var country in countries)
         {
-            apiSnapshot.Countries.Add(new ApiCountry
+            apiSnapshot.C.Add(new ApiCountry
             {
-                Tag = country.Tag,
-                Score = country.Score,
-                Rank = country.Rank,
-                Prestige = country.Prestige,
-                Treasury = country.Treasury,
-                Gdp = country.Gdp,
-                MarketId = country.MarketId
+                T = country.Tag,
+                S = country.Score,
+                R = country.Rank,
+                P = country.Prestige,
+                X = country.Treasury,
+                G = country.Gdp,
+                L = country.Sol,
+                O = country.Population,
+                M = country.MarketId
             });
         }
 
@@ -261,9 +262,9 @@ public sealed class EbsClient : IEbsClient
     {
         return new ApiSnapshotUi
         {
-            GuiScale = settings.GuiScale,
-            SkinTheme = string.IsNullOrWhiteSpace(settings.SkinTheme) ? null : settings.SkinTheme,
-            StreamAspectRatio = settings.StreamAspectRatio
+            G = settings.GuiScale,
+            K = string.IsNullOrWhiteSpace(settings.SkinTheme) ? null : settings.SkinTheme,
+            A = settings.StreamAspectRatio
         };
     }
 

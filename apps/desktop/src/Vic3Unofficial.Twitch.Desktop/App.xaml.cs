@@ -44,6 +44,7 @@ public partial class App : Application
 #if DEBUG
                 lb.AddConsole();
 #endif
+                lb.AddFilter("Microsoft.Extensions.Http", LogLevel.Warning);
                 lb.SetMinimumLevel(StartupLogLevel);
             })
             .ConfigureServices(services =>

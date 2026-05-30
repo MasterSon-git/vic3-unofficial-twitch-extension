@@ -16,6 +16,9 @@ public sealed class SaveParserTests
         var gbr = Assert.Single(countries, country => country.Tag == "GBR");
         Assert.Equal(1207668.69792, gbr.Treasury);
         Assert.Equal(24298716.4524, gbr.Gdp);
+        Assert.Equal(25951649, gbr.Population);
+        Assert.NotNull(gbr.Sol);
+        Assert.Equal(10.096746915774023, gbr.Sol.Value, precision: 12);
         Assert.Equal("0", gbr.MarketId);
         Assert.Equal(1, gbr.Score);
         Assert.Equal("great_power", gbr.Rank);
@@ -82,6 +85,12 @@ country_manager={
 	budget={
 		money=1207668.69792
 		credit=40711686.97924
+	}
+	pop_statistics={
+		population_lower_strata=23662869
+		population_middle_strata=2061566
+		population_upper_strata=227214
+		standard_of_living_by_religion_array={ 18 1=65776517 2=195064859 5=876448 8=35767 12=153000 13=39649 16=80992 }
 	}
 	gdp={
 		sample_rate=28

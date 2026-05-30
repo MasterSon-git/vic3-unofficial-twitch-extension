@@ -74,6 +74,7 @@ public sealed partial class SaveParser : ISaveParser
         CountryBuilder? country = null;
         var countryDepth = -1;
         var gdpDepth = -1;
+        var popStatisticsDepth = -1;
         var rankingRootDepth = -1;
         var rankingListDepth = -1;
         CountryRankingBuilder? ranking = null;
@@ -93,6 +94,7 @@ public sealed partial class SaveParser : ISaveParser
                 country = new CountryBuilder { Id = int.Parse(trimmed[..trimmed.IndexOf('=', StringComparison.Ordinal)], CultureInfo.InvariantCulture) };
                 countryDepth = depth + 1;
                 gdpDepth = -1;
+                popStatisticsDepth = -1;
             }
             else if (rankingRootDepth < 0 && trimmed == "country_rankings={") rankingRootDepth = depth + 1;
             else if (rankingRootDepth > 0 && rankingListDepth < 0 && depth == rankingRootDepth && trimmed == "country_rankings={ {")
@@ -109,7 +111,7 @@ public sealed partial class SaveParser : ISaveParser
 
             if (country is not null)
             {
-                ParseCountryLine(country, trimmed, depth, countryDepth, ref gdpDepth);
+                ParseCountryLine(country, trimmed, depth, countryDepth, ref gdpDepth, ref popStatisticsDepth);
             }
 
             if (ranking is not null && depth == rankingDepth && (trimmed == "} {" || trimmed == "}"))
@@ -124,6 +126,7 @@ public sealed partial class SaveParser : ISaveParser
 
             depth += CountBraces(trimmed);
             if (gdpDepth > 0 && depth < gdpDepth) gdpDepth = -1;
+            if (popStatisticsDepth > 0 && depth < popStatisticsDepth) popStatisticsDepth = -1;
 
             if (country is not null && depth < countryDepth)
             {
@@ -131,6 +134,7 @@ public sealed partial class SaveParser : ISaveParser
                 country = null;
                 countryDepth = -1;
                 gdpDepth = -1;
+                popStatisticsDepth = -1;
             }
 
             if (ranking is not null && depth < rankingDepth)
@@ -170,7 +174,13 @@ public sealed partial class SaveParser : ISaveParser
     private static bool HasParsedRequiredSections(ParsedSaveSection parsedSections) =>
         (parsedSections & RequiredSections) == RequiredSections;
 
-    private static void ParseCountryLine(CountryBuilder country, string trimmed, int depth, int countryDepth, ref int gdpDepth)
+    private static void ParseCountryLine(
+        CountryBuilder country,
+        string trimmed,
+        int depth,
+        int countryDepth,
+        ref int gdpDepth,
+        ref int popStatisticsDepth)
     {
         if (depth == countryDepth)
         {
@@ -178,12 +188,22 @@ public sealed partial class SaveParser : ISaveParser
             else if (TryReadValue(trimmed, "market", out var market)) country.MarketId = market;
             else if (TryReadValue(trimmed, "capital", out var capital)) country.HasCapital = capital != "4294967295";
             else if (trimmed == "gdp={") gdpDepth = depth + 1;
+            else if (trimmed == "pop_statistics={") popStatisticsDepth = depth + 1;
             else if (TryReadValue(trimmed, "dead", out var dead)) country.Dead = string.Equals(dead, "yes", StringComparison.OrdinalIgnoreCase);
             else if (TryReadValue(trimmed, "is_main_tag", out var isMainTag))
                 country.IsMainTag = string.Equals(isMainTag, "yes", StringComparison.OrdinalIgnoreCase);
         }
 
         if (depth == countryDepth + 1 && TryReadDouble(trimmed, "money", out var money)) country.Treasury = money;
+
+        if (popStatisticsDepth > 0 && depth == popStatisticsDepth)
+        {
+            if (TryReadDouble(trimmed, "population_lower_strata", out var lower)) country.PopulationLowerStrata = lower;
+            else if (TryReadDouble(trimmed, "population_middle_strata", out var middle)) country.PopulationMiddleStrata = middle;
+            else if (TryReadDouble(trimmed, "population_upper_strata", out var upper)) country.PopulationUpperStrata = upper;
+            else if (TryReadInlineArrayValueSum(trimmed, "standard_of_living_by_religion_array", out var solSum))
+                country.StandardOfLivingSum = solSum;
+        }
 
         if (gdpDepth > 0)
         {
@@ -239,6 +259,37 @@ public sealed partial class SaveParser : ISaveParser
         return match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
+    private static bool TryReadInlineArrayValueSum(string line, string key, out double sum)
+    {
+        sum = 0;
+        var prefix = key + "={";
+        if (!line.StartsWith(prefix, StringComparison.Ordinal) || !line.EndsWith('}')) return false;
+
+        var content = line[prefix.Length..^1].Trim();
+        if (content.Length == 0) return true;
+
+        var foundValue = false;
+        foreach (var token in content.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var valueText = token;
+            var separator = token.IndexOf('=');
+            if (separator >= 0)
+            {
+                valueText = token[(separator + 1)..];
+            }
+            else if (!foundValue)
+            {
+                continue;
+            }
+
+            if (!double.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) continue;
+            sum += value;
+            foundValue = true;
+        }
+
+        return foundValue;
+    }
+
     private static int CountBraces(string line)
     {
         var count = 0;
@@ -267,6 +318,10 @@ public sealed partial class SaveParser : ISaveParser
         public string? Tag { get; set; }
         public double? Treasury { get; set; }
         public double? Gdp { get; set; }
+        public double? PopulationLowerStrata { get; set; }
+        public double? PopulationMiddleStrata { get; set; }
+        public double? PopulationUpperStrata { get; set; }
+        public double? StandardOfLivingSum { get; set; }
         public string? MarketId { get; set; }
         public bool Dead { get; set; }
         public bool IsMainTag { get; set; }
@@ -285,8 +340,23 @@ public sealed partial class SaveParser : ISaveParser
                 Prestige = ranking?.Prestige,
                 Treasury = Treasury,
                 Gdp = Gdp,
+                Sol = CalculateStandardOfLiving(),
+                Population = CalculatePopulation(),
                 MarketId = MarketId
             };
+        }
+
+        private double? CalculatePopulation()
+        {
+            if (PopulationLowerStrata is null && PopulationMiddleStrata is null && PopulationUpperStrata is null) return null;
+            return (PopulationLowerStrata ?? 0) + (PopulationMiddleStrata ?? 0) + (PopulationUpperStrata ?? 0);
+        }
+
+        private double? CalculateStandardOfLiving()
+        {
+            var population = CalculatePopulation();
+            if (population is null or <= 0 || StandardOfLivingSum is null) return null;
+            return StandardOfLivingSum.Value / population.Value;
         }
     }
 

@@ -78,75 +78,79 @@
       },
       "Country": {
         "type": "object",
-        "description": "Compact game-state values for one Victoria 3 country. Display names, flags, and other UI resources are resolved by the Twitch Extension panel.",
+        "description": "Size-optimized game-state values for one Victoria 3 country. Short property names are intentional because the same shape is broadcast through Twitch PubSub, which is limited to 5 KB. Display names, flags, and other UI resources are resolved by the Twitch Extension panel.",
         "properties": {
-          "tag": {
+          "t": {
             "type": "string",
             "description": "Victoria 3 country tag.",
             "minLength": 2,
             "maxLength": 4,
             "example": "GBR"
           },
-          "score": {
+          "s": {
             "type": "integer",
             "description": "Country ledger placement shown by Victoria 3. Lower values are higher ranks.",
             "minimum": 1,
             "example": 1
           },
-          "rank": {
+          "r": {
             "type": "string",
             "description": "Victoria 3 power rank key, for example great_power, major_power, minor_power, or unrecognized_major_power.",
             "example": "great_power"
           },
-          "prestige": {
+          "p": {
             "type": "number",
             "description": "Prestige value shown in the Victoria 3 country ledger.",
             "example": 544
           },
-          "treasury": {
+          "x": {
             "type": "number",
-            "description": "Current treasury value when available.",
+            "description": "Current treasury value when available. This is currently used only by the country detail view.",
             "example": 1000.5
           },
-          "gdp": {
+          "g": {
             "type": "number",
             "description": "Current gross domestic product value when available.",
             "example": 2000
           },
-          "marketId": {
+          "l": {
+            "type": "number",
+            "description": "Average standard of living shown in the Victoria 3 country ledger when available.",
+            "example": 10.2
+          },
+          "o": {
+            "type": "number",
+            "description": "Current total country population shown in the Victoria 3 country ledger when available.",
+            "example": 25600000
+          },
+          "m": {
             "type": "string",
             "description": "Game/internal market identifier when available.",
             "example": "british_market"
           }
         },
         "required": [
-          "tag"
+          "t"
         ],
         "additionalProperties": false
       },
       "Snapshot": {
         "type": "object",
-        "description": "Game-state snapshot produced by the desktop uploader. Accepted snapshots are broadcast through Twitch Extension PubSub as the payload of a vic3:snapshot message.",
+        "description": "Size-optimized game-state snapshot produced by the desktop uploader. Accepted snapshot game data is broadcast through Twitch Extension PubSub. Short property names are intentional because Twitch limits PubSub messages to 5 KB.",
         "properties": {
-          "channelId": {
+          "h": {
             "type": "string",
-            "description": "Twitch broadcaster channel ID associated with the ingest token.",
-            "minLength": 1,
-            "example": "123456789"
-          },
-          "saveHash": {
-            "type": "string",
-            "description": "Desktop-generated identity for the autosave. The Worker accepts a snapshot only when this value changed from the last accepted snapshot for the channel.",
+            "description": "Desktop-generated identity for the autosave. The Worker uses this only for duplicate detection and does not broadcast it to Twitch viewers.",
             "minLength": 1,
             "example": "autosave-abc123"
           },
-          "seq": {
+          "q": {
             "type": "integer",
             "description": "Uploader sequence number. Values are strictly increasing per channel.",
             "minimum": 0,
             "example": 42
           },
-          "countries": {
+          "c": {
             "type": "array",
             "description": "Compact per-country game-state values.",
             "items": {
@@ -154,41 +158,74 @@
             },
             "maxItems": 300
           },
-          "ui": {
+          "u": {
             "$ref": "#/components/schemas/SnapshotUi"
           },
-          "updatedAt": {
-            "type": "string",
-            "description": "UTC timestamp for the snapshot when available.",
-            "format": "date-time",
-            "example": "2025-10-31T12:00:00Z"
+          "d": {
+            "type": "integer",
+            "format": "int64",
+            "description": "UTC timestamp for the snapshot as Unix epoch seconds when available.",
+            "example": 1761912000
           }
         },
         "required": [
-          "channelId",
-          "saveHash",
-          "seq",
-          "countries"
+          "h",
+          "q",
+          "c"
+        ],
+        "additionalProperties": false
+      },
+      "PubSubSnapshotPayload": {
+        "type": "object",
+        "description": "Size-optimized snapshot payload broadcast through Twitch Extension PubSub. Same game-data shape as Snapshot, without the internal save hash.",
+        "properties": {
+          "q": {
+            "type": "integer",
+            "description": "Uploader sequence number.",
+            "minimum": 0,
+            "example": 42
+          },
+          "d": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Snapshot UTC timestamp as Unix epoch seconds.",
+            "example": 1761912000
+          },
+          "c": {
+            "type": "array",
+            "description": "Size-optimized country values.",
+            "items": {
+              "$ref": "#/components/schemas/Country"
+            },
+            "maxItems": 300
+          },
+          "u": {
+            "$ref": "#/components/schemas/SnapshotUi"
+          }
+        },
+        "required": [
+          "q",
+          "c"
         ],
         "additionalProperties": false
       },
       "SnapshotUi": {
         "type": "object",
-        "description": "Victoria 3 UI settings that affect overlay placement and visual style. Values come from pdx_settings.json on the streamer's machine.",
+        "description": "Size-optimized Victoria 3 UI settings that affect overlay placement and visual style. Values come from pdx_settings.json on the streamer's machine.",
         "properties": {
-          "guiScale": {
+          "g": {
             "type": "number",
             "description": "Victoria 3 GUI scaling factor from GUI.scale, for example 1.3 for 130%.",
             "minimum": 0.5,
             "maximum": 3,
             "example": 1.3
           },
-          "skinTheme": {
+          "k": {
             "type": "string",
             "description": "Victoria 3 selected UI skin theme from Theme.selected_ui_skin_theme when available.",
             "example": "gui_skin_base"
           },
-          "streamAspectRatio": {
+          "a": {
             "type": "number",
             "description": "Visible stream content aspect ratio as width divided by height, after OBS/capture scaling. Examples: 1.7778 for 16:9, 1.6 for 16:10, 2.3333 for 21:9.",
             "minimum": 1,
@@ -394,22 +431,29 @@
       },
       "PubSubSnapshotMessage": {
         "type": "object",
-        "description": "Twitch Extension PubSub message sent by the Worker after accepting a snapshot.",
+        "description": "Size-optimized Twitch Extension PubSub message sent by the Worker after accepting a snapshot. The desktop ingest API remains readable; only this broadcast contract uses short property names to stay within Twitch limits.",
         "properties": {
-          "type": {
+          "t": {
             "type": "string",
             "enum": [
               "vic3:snapshot"
             ],
             "description": "Message discriminator."
           },
-          "payload": {
-            "$ref": "#/components/schemas/Snapshot"
+          "v": {
+            "type": "integer",
+            "description": "PubSub payload schema version.",
+            "minimum": 1,
+            "example": 1
+          },
+          "p": {
+            "$ref": "#/components/schemas/PubSubSnapshotPayload"
           }
         },
         "required": [
-          "type",
-          "payload"
+          "t",
+          "v",
+          "p"
         ],
         "additionalProperties": false
       }
@@ -540,53 +584,55 @@
       "SnapshotExample": {
         "summary": "Accepted snapshot candidate",
         "value": {
-          "channelId": "123456789",
-          "saveHash": "autosave-abc123",
-          "seq": 42,
-          "countries": [
+          "h": "autosave-abc123",
+          "q": 42,
+          "c": [
             {
-              "tag": "GBR",
-              "score": 1,
-              "rank": "great_power",
-              "prestige": 544,
-              "treasury": 1000.5,
-              "gdp": 2000,
-              "marketId": "british_market"
+              "t": "GBR",
+              "s": 1,
+              "r": "great_power",
+              "p": 544,
+              "x": 1000.5,
+              "g": 2000,
+              "l": 10.2,
+              "o": 25600000,
+              "m": "british_market"
             }
           ],
-          "ui": {
-            "guiScale": 1.3,
-            "skinTheme": "gui_skin_base",
-            "streamAspectRatio": 1.6
+          "u": {
+            "g": 1.3,
+            "k": "gui_skin_base",
+            "a": 1.6
           },
-          "updatedAt": "2025-10-31T12:00:00Z"
+          "d": 1761912000
         }
       },
       "PubSubSnapshotMessageExample": {
         "summary": "Broadcast snapshot message",
         "value": {
-          "type": "vic3:snapshot",
-          "payload": {
-            "channelId": "123456789",
-            "saveHash": "autosave-abc123",
-            "seq": 42,
-            "countries": [
+          "t": "vic3:snapshot",
+          "v": 1,
+          "p": {
+            "q": 42,
+            "c": [
               {
-                "tag": "GBR",
-                "score": 1,
-                "rank": "great_power",
-                "prestige": 544,
-                "treasury": 1000.5,
-                "gdp": 2000,
-                "marketId": "british_market"
+                "t": "GBR",
+                "s": 1,
+                "r": "great_power",
+                "p": 544,
+                "x": 1000.5,
+                "g": 2000,
+                "l": 10.2,
+                "o": 25600000,
+                "m": "british_market"
               }
             ],
-            "ui": {
-              "guiScale": 1.3,
-              "skinTheme": "gui_skin_base",
-              "streamAspectRatio": 1.6
+            "u": {
+              "g": 1.3,
+              "k": "gui_skin_base",
+              "a": 1.6
             },
-            "updatedAt": "2025-10-31T12:00:00Z"
+            "d": 1761912000
           }
         }
       },
@@ -1179,7 +1225,7 @@
         ],
         "operationId": "ingestSnapshot",
         "summary": "Ingest snapshot",
-        "description": "Accepts one desktop uploader snapshot and broadcasts it through Twitch Extension PubSub. The Worker validates the ingest token, channel ID, increasing sequence number, changed save hash, configured ingest interval, and PubSub payload size before publishing.",
+        "description": "Accepts one desktop uploader snapshot and broadcasts it through Twitch Extension PubSub. The Worker validates the ingest token, increasing sequence number, changed save hash, configured ingest interval, and PubSub payload size before publishing.",
         "security": [
           {
             "ingestToken": []

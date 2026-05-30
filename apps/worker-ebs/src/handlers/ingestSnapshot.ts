@@ -3,6 +3,7 @@ import { json } from '../lib/responses'
 import { PubSubBroadcastError, sendPubSubBroadcast } from '../twitch'
 import { admitActiveChannel } from '../lib/activeSessions'
 import { revokeChannelPairing, validateIngestToken } from '../lib/pairings'
+import { buildPubSubSnapshotMessage } from '../lib/pubsubSnapshot'
 
 function numberFromEnv(value: string | number | undefined, fallback: number) {
   const parsed = Number(value)
@@ -27,7 +28,6 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
 
   const channelId = await validateIngestToken(env, token)
   if (!channelId) return json({ error: 'invalid_ingest_token' }, 401)
-  if (snapshot.channelId !== channelId) return json({ error: 'channel_mismatch' }, 400)
   const admission = await admitActiveChannel(env, channelId)
   if (!admission.ok) return json({ error: admission.error }, 429)
   if (admission.evictedChannelId) await revokeChannelPairing(env, admission.evictedChannelId)
@@ -44,8 +44,8 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
   const lastSeq = meta?.seq ?? -1
   const lastSaveHash = meta?.saveHash ?? ''
 
-  if (snapshot.seq <= lastSeq) return json({ error: 'stale_sequence', lastSeq }, 409)
-  if (snapshot.saveHash === lastSaveHash) return json({ error: 'needs_new_autosave' }, 409)
+  if (snapshot.q <= lastSeq) return json({ error: 'stale_sequence', lastSeq }, 409)
+  if (snapshot.h === lastSaveHash) return json({ error: 'needs_new_autosave' }, 409)
 
   const baseIntervalMs = numberFromEnv(env.INGEST_BASE_INTERVAL_MS, 300000)
   const elapsedMs = now - lastAcceptedAt
@@ -53,7 +53,7 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
     return json({ error: 'too_soon', retryInMs: baseIntervalMs - elapsedMs }, 429)
   }
 
-  const message = JSON.stringify({ type: 'vic3:snapshot', payload: snapshot })
+  const message = buildPubSubSnapshotMessage(snapshot)
   if (encodedSize(message) > 4800) {
     return json(
       { error: 'payload_too_large', hint: 'Reduce the broadcasted snapshot size below the Twitch PubSub limit.' },
@@ -78,7 +78,7 @@ export const handleIngestSnapshotOperation: OperationHandler<'ingestSnapshot'> =
     return json({ error: 'pubsub_failed' }, 502)
   }
 
-  await env.KV.put(metaKey, JSON.stringify({ ts: now, seq: snapshot.seq, saveHash: snapshot.saveHash }), {
+  await env.KV.put(metaKey, JSON.stringify({ ts: now, seq: snapshot.q, saveHash: snapshot.h }), {
     expirationTtl: 24 * 3600,
   })
 
