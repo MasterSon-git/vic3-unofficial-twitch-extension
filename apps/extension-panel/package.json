@@ -11,7 +11,9 @@
     "build": "npm run oas:gen && vite build",
     "dev": "npm run oas:gen && vite --host 127.0.0.1"
   },
-  "dependencies": {},
+  "dependencies": {
+    "lit": "^3.3.3"
+  },
   "devDependencies": {
     "mkdirp": "^3.0.1",
     "openapi-typescript": "^7.13.0",

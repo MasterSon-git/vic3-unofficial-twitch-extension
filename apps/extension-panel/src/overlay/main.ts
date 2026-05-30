@@ -1,3 +1,5 @@
+import { html, nothing, render as litRender, type TemplateResult } from 'lit'
+import { classMap } from 'lit/directives/class-map.js'
 import { requireElement } from '../shared/dom'
 import { fixtureMessage } from '../shared/fixtures'
 import { formatCompact, formatDecimal, formatInteger, formatLedgerRank, formatTime } from '../shared/format'
@@ -14,6 +16,16 @@ type OverlayState =
   | { kind: 'live'; visible: boolean; snapshot: Snapshot; receivedAt: Date }
   | { kind: 'invalid'; visible: boolean; reason: string }
 
+type OverlayViewModel = {
+  state: OverlayState
+  ledgerOpen: boolean
+  locale: SupportedLocale
+  sort: LedgerSort
+  selectedCountryTag: string | null
+  channelId: string | null
+  layoutUi: LayoutUi | null
+}
+
 type ViewportRect = {
   width: number
   height: number
@@ -27,18 +39,22 @@ type VideoContentRect = {
   height: number
 }
 
-let state: OverlayState = { kind: 'waiting', visible: true }
-let ledgerOpen = false
-const queryParams = new URLSearchParams(window.location.search)
-const hasQueryLocale = queryParams.has('language') || queryParams.has('locale')
-let locale: SupportedLocale = localeFromQuery(window.location.search)
-let sort: LedgerSort = { key: 'rank', direction: 'asc' }
-let selectedCountryTag: string | null = null
-let channelId: string | null = null
+type LayoutUi = {
+  guiScale: number
+  streamAspectRatio: number
+}
+
+type OpenContent =
+  | { kind: 'message'; title: string; status: string; body: TemplateResult }
+  | { kind: 'ledger'; title: string; status: string; countries: Snapshot['c'] }
+  | { kind: 'country'; title: string; status: string; country: Snapshot['c'][number] }
+
 const app = requireElement<HTMLElement>('#app')
 const twitch = getTwitchExt()
-const defaultStreamedContentAspectRatio = 16 / 9
+const queryParams = new URLSearchParams(window.location.search)
+const hasQueryLocale = queryParams.has('language') || queryParams.has('locale')
 const fixtureMode = queryParams.has('fixture')
+const defaultStreamedContentAspectRatio = 16 / 9
 
 // Fractions are measured inside the visible streamed video content, not inside the Twitch iframe.
 // This keeps overlay hit targets aligned when Twitch adds letterboxing around non-16:9 streams.
@@ -46,83 +62,313 @@ const victoria3LedgerLayout = {
   referenceVideoHeight: 1080,
   calibratedGuiScale: 1.3,
   toggleLeft: -0.001,
-  toggleBottom: 0.312,
+  toggleBottom: 0.335,
   ledgerLeft: 0.026,
-  ledgerTop: 0.039,
+  ledgerTop: 0.074,
   ledgerWidth: 0.285,
-  ledgerMaxHeight: 0.89,
+  ledgerBottom: 0.01,
 } as const
 
+const vm: OverlayViewModel = {
+  state: { kind: 'waiting', visible: true },
+  ledgerOpen: false,
+  locale: localeFromQuery(window.location.search),
+  sort: { key: 'rank', direction: 'asc' },
+  selectedCountryTag: null,
+  channelId: null,
+  layoutUi: null,
+}
+let renderedBodyKey: string | null = null
+
 applyPreferredTheme()
+
 twitch?.onAuthorized((auth) => {
-  channelId = auth.channelId
-  updateVideoLayout()
-  render()
+  updateViewModel({ channelId: auth.channelId, layoutUi: null }, { updateLayout: true })
 })
+
 twitch?.onContext((context) => {
   applyTwitchTheme(context)
   if (!hasQueryLocale) {
-    locale = resolveLocale(context.language ?? locale)
+    const nextLocale = resolveLocale(context.language ?? vm.locale)
+    if (nextLocale !== vm.locale) updateViewModel({ locale: nextLocale })
   }
-  render()
 })
+
 twitch?.onVisibilityChanged?.((visible) => {
-  state = { ...state, visible }
-  render()
-})
-
-app.addEventListener('click', (event) => {
-  const target = event.target
-  if (!(target instanceof HTMLElement)) return
-
-  const action = target.closest<HTMLElement>('[data-action]')?.dataset.action
-  if (action === 'toggle-ledger') {
-    ledgerOpen = !ledgerOpen
-    selectedCountryTag = null
-    render()
-  } else if (action === 'sort-ledger') {
-    const key = target.closest<HTMLElement>('[data-sort-key]')?.dataset.sortKey
-    if (isLedgerSortKey(key)) {
-      sort = {
-        key,
-        direction: sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc',
-      }
-      selectedCountryTag = null
-      render()
-    }
-  } else if (action === 'show-country') {
-    const tag = target.closest<HTMLElement>('[data-country-tag]')?.dataset.countryTag
-    if (tag) {
-      selectedCountryTag = tag
-      render()
-    }
-  } else if (action === 'back-ledger') {
-    selectedCountryTag = null
-    render()
+  if (visible !== vm.state.visible) {
+    updateViewModel({ state: { ...vm.state, visible } })
   }
 })
 
-window.addEventListener('resize', updateVideoLayout)
-window.ResizeObserver && new ResizeObserver(updateVideoLayout).observe(app)
-updateVideoLayout()
+window.addEventListener('resize', () => renderOverlay({ updateLayout: true }))
+window.ResizeObserver && new ResizeObserver(() => renderOverlay({ updateLayout: true })).observe(app)
+
+if (twitch?.listen) {
+  twitch.listen('broadcast', (_target, _contentType, message) => acceptMessage(message))
+} else {
+  acceptMessage(fixtureMessage())
+}
+
+if (fixtureMode) {
+  acceptMessage(fixtureMessage())
+}
+
+renderOverlay({ updateLayout: true })
 
 function acceptMessage(rawMessage: string) {
   const snapshot = parsePubSubSnapshot(rawMessage)
   if (!snapshot) {
-    state = { kind: 'invalid', visible: true, reason: 'Received unsupported PubSub message.' }
-    render()
+    updateViewModel({ state: { kind: 'invalid', visible: true, reason: 'Received unsupported PubSub message.' } })
     return
   }
 
-  state = { kind: 'live', visible: true, snapshot, receivedAt: new Date() }
   rememberSnapshotUi(snapshot)
-  updateVideoLayout()
-  render()
+  updateViewModel({ state: { kind: 'live', visible: true, snapshot, receivedAt: new Date() } })
+}
+
+function updateViewModel(
+  patch: Partial<Omit<OverlayViewModel, 'sort'> & { sort: LedgerSort }>,
+  options: { updateLayout?: boolean } = {}
+) {
+  Object.assign(vm, patch)
+  renderOverlay(options)
+}
+
+function renderOverlay(options: { updateLayout?: boolean } = {}) {
+  if (options.updateLayout) updateVideoLayout()
+
+  const snapshot = vm.state.kind === 'live' ? vm.state.snapshot : null
+  const uiStyle = resolveUiStyle(snapshot)
+  app.className = uiStyle.className
+  const bodyKey = getBodyKey()
+
+  litRender(overlayTemplate(), app)
+
+  if (bodyKey !== renderedBodyKey) {
+    renderedBodyKey = bodyKey
+    app.querySelector<HTMLElement>('.ledger-list')?.scrollTo({ top: 0 })
+  }
+}
+
+function overlayTemplate() {
+  if (!vm.state.visible) return nothing
+  if (!vm.ledgerOpen) return closedTemplate()
+
+  const content = getOpenContent()
+  return html`
+    <section class="overlay-root">
+      ${toggleButtonTemplate(vm.state.kind)}
+      <section
+        class=${classMap({ ledger: true, 'country-panel-mode': content.kind === 'country' })}
+        aria-label="Victoria 3 country ledger"
+      >
+        ${ledgerHeaderTemplate(content)}
+        ${content.kind === 'country' ? nothing : ledgerToolbarTemplate()}
+        <div class="ledger-list">${openContentBodyTemplate(content)}</div>
+      </section>
+    </section>
+  `
+}
+
+function closedTemplate() {
+  return html`
+    <section class="overlay-root overlay-root-closed">
+      ${toggleButtonTemplate(vm.state.kind)}
+    </section>
+  `
+}
+
+function getOpenContent(): OpenContent {
+  if (vm.state.kind === 'waiting') {
+    return {
+      kind: 'message',
+      title: t(vm.locale, 'waitingTitle'),
+      status: t(vm.locale, 'waitingStatus'),
+      body: html`<div class="empty">${t(vm.locale, 'waitingMessage')}</div>`,
+    }
+  }
+
+  if (vm.state.kind === 'invalid') {
+    return {
+      kind: 'message',
+      title: t(vm.locale, 'invalidTitle'),
+      status: t(vm.locale, 'invalidStatus'),
+      body: html`<div class="empty">${vm.state.reason}</div>`,
+    }
+  }
+
+  const selectedCountry = vm.selectedCountryTag
+    ? vm.state.snapshot.c.find(country => country.t === vm.selectedCountryTag) ?? null
+    : null
+  const updatedAt = formatTime(vm.state.snapshot.d, vm.locale)
+  const status = updatedAt
+    ? `${t(vm.locale, 'updated')} ${updatedAt}`
+    : `${t(vm.locale, 'sequence')} ${vm.state.snapshot.q}`
+
+  if (selectedCountry) {
+    return {
+      kind: 'country',
+      title: getCountryDisplay(selectedCountry.t, vm.locale).name,
+      status,
+      country: selectedCountry,
+    }
+  }
+
+  return {
+    kind: 'ledger',
+    title: t(vm.locale, 'ledgerTitle'),
+    status,
+    countries: sortCountries(vm.state.snapshot, vm.sort).slice(0, 30),
+  }
+}
+
+function ledgerHeaderTemplate(content: OpenContent) {
+  return html`
+    <header class="ledger-header">
+      <div>
+        <h1 class="ledger-title">${content.title}</h1>
+        <div class="ledger-subtitle">${t(vm.locale, 'appName')}</div>
+      </div>
+      <div class="ledger-header-actions">
+        <div class="ledger-status">${content.status}</div>
+        ${content.kind === 'country'
+          ? html`<button class="ledger-back" type="button" @click=${showLedger} aria-label=${t(vm.locale, 'backToLedger')}>‹</button>`
+          : nothing}
+        <button class="ledger-close" type="button" @click=${toggleLedger} aria-label=${t(vm.locale, 'closeLedger')}>x</button>
+      </div>
+    </header>
+  `
+}
+
+function ledgerToolbarTemplate() {
+  return html`
+    <div class="ledger-toolbar">
+      ${sortButtonTemplate('rank', t(vm.locale, 'rank'))}
+      ${sortButtonTemplate('country', t(vm.locale, 'country'))}
+      ${sortButtonTemplate('prestige', t(vm.locale, 'prestige'), true)}
+      ${sortButtonTemplate('gdp', t(vm.locale, 'gdp'), true)}
+      ${sortButtonTemplate('sol', t(vm.locale, 'sol'), true)}
+      ${sortButtonTemplate('population', t(vm.locale, 'population'), true)}
+    </div>
+  `
+}
+
+function sortButtonTemplate(key: LedgerSortKey, label: string, numeric = false) {
+  const active = vm.sort.key === key
+  const marker = active ? (vm.sort.direction === 'asc' ? '▲' : '▼') : ''
+  return html`
+    <button
+      class=${classMap({ 'ledger-sort': true, 'ledger-value': numeric, active })}
+      type="button"
+      @click=${() => sortLedger(key)}
+    >
+      <span>${label}</span><span class="sort-marker">${marker}</span>
+    </button>
+  `
+}
+
+function openContentBodyTemplate(content: OpenContent) {
+  if (content.kind === 'message') return content.body
+  if (content.kind === 'country') return countryPanelTemplate(content.country)
+  if (content.countries.length === 0) return html`<div class="empty">${t(vm.locale, 'noCountries')}</div>`
+  return content.countries.map((country, index) => ledgerRowTemplate(country, index))
+}
+
+function toggleButtonTemplate(kind: OverlayState['kind']) {
+  const label = kind === 'live' ? t(vm.locale, 'openLedger') : t(vm.locale, 'openLedgerWaiting')
+  return html`
+    <button class=${`ledger-toggle ${kind}`} type="button" @click=${toggleLedger} aria-label=${label}>
+      <span class="visually-hidden">${label}</span>
+    </button>
+  `
+}
+
+function ledgerRowTemplate(country: Snapshot['c'][number], index: number) {
+  return html`
+    <button class="ledger-row" type="button" @click=${() => showCountry(country.t)}>
+      <div><span class="ledger-rank">${formatLedgerRank(country.s, index)}</span></div>
+      <div class="ledger-country">${countryNameTemplate(country.t)}</div>
+      <div class="ledger-value">${formatInteger(country.p, vm.locale)}</div>
+      <div class="ledger-value">${formatCompact(country.g, vm.locale)}</div>
+      <div class="ledger-value">${formatDecimal(country.l, vm.locale)}</div>
+      <div class="ledger-value">${formatCompact(country.o, vm.locale)}</div>
+    </button>
+  `
+}
+
+function countryPanelTemplate(country: Snapshot['c'][number]) {
+  const display = getCountryDisplay(country.t, vm.locale)
+  return html`
+    <article class="country-panel">
+      <div class="country-hero">
+        <div class="country-flag">${display.flag || country.t}</div>
+        <div>
+          <h2>${display.name}</h2>
+          <div class="country-tag">${country.t}</div>
+        </div>
+      </div>
+      <dl class="country-stats">
+        ${statTemplate(t(vm.locale, 'rank'), formatLedgerRank(country.s, 0))}
+        ${statTemplate(t(vm.locale, 'powerRank'), localizeRank(country.r))}
+        ${statTemplate(t(vm.locale, 'prestige'), formatInteger(country.p, vm.locale))}
+        ${statTemplate(t(vm.locale, 'gdp'), formatCompact(country.g, vm.locale))}
+        ${statTemplate(t(vm.locale, 'sol'), formatDecimal(country.l, vm.locale))}
+        ${statTemplate(t(vm.locale, 'population'), formatCompact(country.o, vm.locale))}
+        ${statTemplate(t(vm.locale, 'treasury'), formatCompact(country.x, vm.locale))}
+        ${statTemplate(t(vm.locale, 'market'), country.m ?? t(vm.locale, 'notAvailable'))}
+      </dl>
+    </article>
+  `
+}
+
+function statTemplate(label: string, value: string) {
+  return html`<div><dt>${label}</dt><dd>${value}</dd></div>`
+}
+
+function countryNameTemplate(tag: string) {
+  const display = getCountryDisplay(tag, vm.locale)
+  return html`
+    ${display.flag ? html`<span class="country-flag-inline">${display.flag}</span>` : nothing}
+    <span class="country-name">${display.name}</span>
+  `
+}
+
+function toggleLedger() {
+  updateViewModel({
+    ledgerOpen: !vm.ledgerOpen,
+    selectedCountryTag: null,
+  })
+}
+
+function showLedger() {
+  if (vm.selectedCountryTag === null) return
+  updateViewModel({ selectedCountryTag: null })
+}
+
+function showCountry(tag: string) {
+  if (vm.selectedCountryTag === tag) return
+  updateViewModel({ selectedCountryTag: tag })
+}
+
+function sortLedger(key: LedgerSortKey) {
+  updateViewModel({
+    selectedCountryTag: null,
+    sort: {
+      key,
+      direction: vm.sort.key === key && vm.sort.direction === 'asc' ? 'desc' : 'asc',
+    },
+  })
+}
+
+function getBodyKey() {
+  if (!vm.state.visible) return 'hidden'
+  if (!vm.ledgerOpen) return `closed:${vm.state.kind}`
+  if (vm.state.kind !== 'live') return `open:${vm.state.kind}`
+  return `open:live:${vm.selectedCountryTag ?? 'ledger'}:${vm.sort.key}:${vm.sort.direction}`
 }
 
 function updateVideoLayout() {
   const viewport = getOverlayViewport()
-
   const streamedContentAspectRatio = getStreamedContentAspectRatio()
   const video = resolveVideoContentRect(viewport, streamedContentAspectRatio)
   const guiScale = getSnapshotGuiScale()
@@ -131,6 +377,7 @@ function updateVideoLayout() {
     0,
     Math.min(620, Math.max(0, video.width - 8))
   )
+  const ledgerHeight = Math.max(0, video.height * (1 - victoria3LedgerLayout.ledgerTop - victoria3LedgerLayout.ledgerBottom))
   const uiScale = resolveOverlayScale(video, streamedContentAspectRatio, guiScale, ledgerWidth)
   const px = (value: number) => `${Math.round(value * 100) / 100}px`
   const scaledPx = (value: number) => px(value * uiScale)
@@ -150,7 +397,7 @@ function updateVideoLayout() {
   app.style.setProperty('--ledger-left', px(video.left + video.width * victoria3LedgerLayout.ledgerLeft))
   app.style.setProperty('--ledger-top', px(video.top + video.height * victoria3LedgerLayout.ledgerTop))
   app.style.setProperty('--ledger-width', px(ledgerWidth))
-  app.style.setProperty('--ledger-max-height', px(video.height * victoria3LedgerLayout.ledgerMaxHeight))
+  app.style.setProperty('--ledger-height', px(ledgerHeight))
   app.style.setProperty('--ledger-header-min-height', scaledPx(58))
   app.style.setProperty('--ledger-header-block-padding', scaledPx(12))
   app.style.setProperty('--ledger-header-inline-padding', scaledPx(16))
@@ -169,6 +416,7 @@ function updateVideoLayout() {
   app.style.setProperty('--ledger-row-height', scaledPx(38))
   app.style.setProperty('--ledger-row-font-size', scaledPx(14))
   app.style.setProperty('--ledger-rank-size', scaledPx(28))
+  app.style.setProperty('--ledger-list-bottom-padding', scaledPx(96))
   app.style.setProperty('--ledger-empty-block-padding', scaledPx(20))
   app.style.setProperty('--ledger-empty-inline-padding', scaledPx(16))
   app.style.setProperty('--ledger-empty-font-size', scaledPx(16))
@@ -231,21 +479,22 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function getSnapshotGuiScale() {
-  if (state.kind !== 'live') return getCachedSnapshotUi().guiScale ?? victoria3LedgerLayout.calibratedGuiScale
-
-  const guiScale = state.snapshot.u?.g
-  return typeof guiScale === 'number' && Number.isFinite(guiScale)
-    ? Math.min(3, Math.max(0.5, guiScale))
-    : victoria3LedgerLayout.calibratedGuiScale
+  return getLayoutUi().guiScale
 }
 
 function getStreamedContentAspectRatio() {
-  if (state.kind !== 'live') return getCachedSnapshotUi().streamAspectRatio ?? defaultStreamedContentAspectRatio
+  return getLayoutUi().streamAspectRatio
+}
 
-  const streamAspectRatio = state.snapshot.u?.a
-  return typeof streamAspectRatio === 'number' && Number.isFinite(streamAspectRatio)
-    ? Math.min(4, Math.max(1, streamAspectRatio))
-    : defaultStreamedContentAspectRatio
+function getLayoutUi(): LayoutUi {
+  if (vm.layoutUi) return vm.layoutUi
+
+  const cached = getCachedSnapshotUi()
+  vm.layoutUi = {
+    guiScale: cached.guiScale ?? victoria3LedgerLayout.calibratedGuiScale,
+    streamAspectRatio: cached.streamAspectRatio ?? defaultStreamedContentAspectRatio,
+  }
+  return vm.layoutUi
 }
 
 function rememberSnapshotUi(snapshot: Snapshot) {
@@ -282,176 +531,12 @@ function getCachedSnapshotUi() {
 }
 
 function getUiCacheKey() {
-  if (channelId) return `vic3-overlay:${channelId}:last-ui`
+  if (vm.channelId) return `vic3-overlay:${vm.channelId}:last-ui`
   return fixtureMode ? 'vic3-overlay:fixture:last-ui' : null
 }
 
-if (twitch?.listen) {
-  twitch.listen('broadcast', (_target, _contentType, message) => acceptMessage(message))
-} else {
-  acceptMessage(fixtureMessage())
-}
-
-if (fixtureMode) {
-  acceptMessage(fixtureMessage())
-}
-
-render()
-
-function render() {
-  updateVideoLayout()
-  const snapshot = state.kind === 'live' ? state.snapshot : null
-  const uiStyle = resolveUiStyle(snapshot)
-  app.className = uiStyle.className
-
-  if (!state.visible) {
-    app.innerHTML = ''
-    return
-  }
-
-  if (!ledgerOpen) {
-    app.innerHTML = closedHtml(state.kind)
-    return
-  }
-
-  if (state.kind === 'waiting') {
-    app.innerHTML = shellHtml(t(locale, 'waitingTitle'), t(locale, 'waitingStatus'), `<div class="empty">${escapeHtml(t(locale, 'waitingMessage'))}</div>`)
-    return
-  }
-
-  if (state.kind === 'invalid') {
-    app.innerHTML = shellHtml(t(locale, 'invalidTitle'), t(locale, 'invalidStatus'), `<div class="empty">${escapeHtml(state.reason)}</div>`)
-    return
-  }
-
-  const countries = sortCountries(state.snapshot, sort).slice(0, 30)
-  const selectedCountry = selectedCountryTag
-    ? state.snapshot.c.find(country => country.t === selectedCountryTag) ?? null
-    : null
-  const updatedAt = formatTime(state.snapshot.d, locale)
-  app.innerHTML = shellHtml(
-    selectedCountry ? getCountryDisplay(selectedCountry.t, locale).name : t(locale, 'ledgerTitle'),
-    updatedAt ? `${t(locale, 'updated')} ${updatedAt}` : `${t(locale, 'sequence')} ${state.snapshot.q}`,
-    selectedCountry ? countryPanelHtml(selectedCountry) : ledgerRowsHtml(countries),
-    selectedCountry !== null
-  )
-}
-
-function shellHtml(title: string, status: string, content: string, countryPanel = false) {
-  return `
-    <section class="overlay-root">
-      ${toggleButtonHtml(state.kind)}
-      <section class="ledger ${countryPanel ? 'country-panel-mode' : ''}" aria-label="Victoria 3 country ledger">
-        <header class="ledger-header">
-          <div>
-            <h1 class="ledger-title">${escapeHtml(title)}</h1>
-            <div class="ledger-subtitle">${escapeHtml(t(locale, 'appName'))}</div>
-          </div>
-          <div class="ledger-header-actions">
-            <div class="ledger-status">${escapeHtml(status)}</div>
-            ${countryPanel ? `<button class="ledger-back" type="button" data-action="back-ledger" aria-label="${escapeHtml(t(locale, 'backToLedger'))}">‹</button>` : ''}
-            <button class="ledger-close" type="button" data-action="toggle-ledger" aria-label="${escapeHtml(t(locale, 'closeLedger'))}">x</button>
-          </div>
-        </header>
-        ${countryPanel ? '' : ledgerToolbarHtml()}
-        <div class="ledger-list">${content}</div>
-      </section>
-    </section>
-  `
-}
-
-function ledgerToolbarHtml() {
-  return `
-    <div class="ledger-toolbar">
-      ${sortButtonHtml('rank', t(locale, 'rank'))}
-      ${sortButtonHtml('country', t(locale, 'country'))}
-      ${sortButtonHtml('prestige', t(locale, 'prestige'), true)}
-      ${sortButtonHtml('gdp', t(locale, 'gdp'), true)}
-      ${sortButtonHtml('sol', t(locale, 'sol'), true)}
-      ${sortButtonHtml('population', t(locale, 'population'), true)}
-    </div>
-  `
-}
-
-function sortButtonHtml(key: LedgerSortKey, label: string, numeric = false) {
-  const active = sort.key === key
-  const marker = active ? (sort.direction === 'asc' ? '▲' : '▼') : ''
-  return `
-    <button class="ledger-sort ${numeric ? 'ledger-value' : ''} ${active ? 'active' : ''}" type="button" data-action="sort-ledger" data-sort-key="${key}">
-      <span>${escapeHtml(label)}</span><span class="sort-marker">${marker}</span>
-    </button>
-  `
-}
-
-function closedHtml(kind: OverlayState['kind']) {
-  return `
-    <section class="overlay-root overlay-root-closed">
-      ${toggleButtonHtml(kind)}
-    </section>
-  `
-}
-
-function toggleButtonHtml(kind: OverlayState['kind']) {
-  const label = kind === 'live' ? t(locale, 'openLedger') : t(locale, 'openLedgerWaiting')
-  return `
-    <button class="ledger-toggle ${kind}" type="button" data-action="toggle-ledger" aria-label="${escapeHtml(label)}">
-      <span class="visually-hidden">${escapeHtml(label)}</span>
-    </button>
-  `
-}
-
-function ledgerRowsHtml(countries: Snapshot['c']) {
-  if (countries.length === 0) return `<div class="empty">${escapeHtml(t(locale, 'noCountries'))}</div>`
-
-  return countries.map((country, index) => `
-    <button class="ledger-row" type="button" data-action="show-country" data-country-tag="${escapeHtml(country.t)}">
-      <div><span class="ledger-rank">${escapeHtml(formatLedgerRank(country.s, index))}</span></div>
-      <div class="ledger-country">${countryNameHtml(country.t)}</div>
-      <div class="ledger-value">${escapeHtml(formatInteger(country.p, locale))}</div>
-      <div class="ledger-value">${escapeHtml(formatCompact(country.g, locale))}</div>
-      <div class="ledger-value">${escapeHtml(formatDecimal(country.l, locale))}</div>
-      <div class="ledger-value">${escapeHtml(formatCompact(country.o, locale))}</div>
-    </button>
-  `).join('')
-}
-
-function countryPanelHtml(country: Snapshot['c'][number]) {
-  const display = getCountryDisplay(country.t, locale)
-  return `
-    <article class="country-panel">
-      <div class="country-hero">
-        <div class="country-flag">${escapeHtml(display.flag || country.t)}</div>
-        <div>
-          <h2>${escapeHtml(display.name)}</h2>
-          <div class="country-tag">${escapeHtml(country.t)}</div>
-        </div>
-      </div>
-      <dl class="country-stats">
-        ${statHtml(t(locale, 'rank'), formatLedgerRank(country.s, 0))}
-        ${statHtml(t(locale, 'powerRank'), localizeRank(country.r))}
-        ${statHtml(t(locale, 'prestige'), formatInteger(country.p, locale))}
-        ${statHtml(t(locale, 'gdp'), formatCompact(country.g, locale))}
-        ${statHtml(t(locale, 'sol'), formatDecimal(country.l, locale))}
-        ${statHtml(t(locale, 'population'), formatCompact(country.o, locale))}
-        ${statHtml(t(locale, 'treasury'), formatCompact(country.x, locale))}
-        ${statHtml(t(locale, 'market'), country.m ?? t(locale, 'notAvailable'))}
-      </dl>
-    </article>
-  `
-}
-
-function statHtml(label: string, value: string) {
-  return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`
-}
-
-function countryNameHtml(tag: string) {
-  const display = getCountryDisplay(tag, locale)
-  const flag = display.flag ? `<span class="country-flag-inline">${escapeHtml(display.flag)}</span>` : ''
-  return `${flag}<span class="country-name">${escapeHtml(display.name)}</span>`
-}
-
 function localizeRank(rank: string | null | undefined) {
-  if (!rank) return t(locale, 'notAvailable')
+  if (!rank) return t(vm.locale, 'notAvailable')
   const labels: Record<string, Record<SupportedLocale, string>> = {
     great_power: { en: 'Great Power', de: 'Großmacht' },
     major_power: { en: 'Major Power', de: 'Großmacht' },
@@ -461,18 +546,5 @@ function localizeRank(rank: string | null | undefined) {
     unrecognized_regional_power: { en: 'Unrecognized Regional Power', de: 'Unanerkannte Regionalmacht' },
     unrecognized_power: { en: 'Unrecognized Power', de: 'Unanerkannte Macht' },
   }
-  return labels[rank]?.[locale] ?? rank.replaceAll('_', ' ')
-}
-
-function isLedgerSortKey(value: string | undefined): value is LedgerSortKey {
-  return value === 'rank' || value === 'country' || value === 'prestige' || value === 'gdp' || value === 'sol' || value === 'population'
-}
-
-function escapeHtml(value: string | number) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+  return labels[rank]?.[vm.locale] ?? rank.replaceAll('_', ' ')
 }
